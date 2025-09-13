@@ -4,7 +4,6 @@
 
 - Rumors of starting in levels 1 or 2 instead of 0
 - Yellow wallpaper
-- Wallpaper can be peeled
 - Moist carpets
 - Indentations in carpet - as if from furniture legs
 - Occasional outlets
@@ -14,7 +13,6 @@
 - Graffiti
 - Red rooms can be found
 - Unlit areas can be found
-- Random layout
 - Florescent lights
 - Random light placement
 - Lights buzz slightly louder than normal, causing headaches
@@ -28,7 +26,10 @@
 - Rare emergency exit may lead to another level?
 - Rare sliding glass doors may lead to another level?
 - Wifi, radio, and locational devices like compasses fail/are defective
+
+- Random layout - working
 - Non-euclidean - working
+- Wallpaper can be peeled - working
 
 #### Manilla room
 

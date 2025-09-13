@@ -9,7 +9,9 @@ const input = @import("input_handler.zig");
 
 const ECS = @import("ecs");
 
+const Scene = @import("scenes/scene.zig");
 const World = @import("world.zig");
+const Object = @import("object.zig");
 const Player = @import("player.zig");
 
 pub const std_options = std.Options{
@@ -24,10 +26,10 @@ pub var mainAllocator = mainGPAllocator.allocator();
 
 pub var ecs: ECS = undefined;
 
+pub var scene: *Scene = undefined;
 pub var world: World = undefined;
 pub var worldBuffer: [World.minBufferSize()]u8 = undefined;
 
-pub var player = Player{};
 pub var running: bool = true;
 
 pub fn main() !void
@@ -49,17 +51,17 @@ pub fn main() !void
   rand = randomEngine.random();
 
   var fba = std.heap.FixedBufferAllocator.init(&worldBuffer);
-  world = World.init(fba.allocator(), player.parent.pos-@divFloor(@Vector(2, i16){@intCast(ncurses.COLS), @intCast(ncurses.LINES)}, @Vector(2, i16){2, 2}));
-  world.objects[0] = &player.parent;
+  world = World.init(fba.allocator(), -@divFloor(@Vector(2, i16){@intCast(ncurses.COLS), @intCast(ncurses.LINES)}, World.Coord{2, 2}));
+  world.objects[0] = ecs.addEntity(&.{"objectType", "pos"}, .{Object.Type.Player, World.Coord{0, 0}});
+
+  scene = Scene.world.enter(&Scene.world);
 
   while (running)
   {
     input.getInput();
     
-    _ = ncurses.erase();
-   
-    world.draw();
+    scene.update(scene);
 
-    _ = ncurses.refresh();
+    scene.draw(scene);
   }
 }

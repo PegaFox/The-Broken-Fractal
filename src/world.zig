@@ -17,16 +17,18 @@ pub fn minBufferSize() usize
   return 4_096;
 }
 
-const Tilemap: type = ArrayHashMap(@Vector(2, i16), ECS.Entity);
+pub const Coord = @Vector(2, i16);
+
+const Tilemap: type = ArrayHashMap(Coord, ECS.Entity);
 
 tiles: Tilemap,
 
-objects: [16]?ECS.Entity,
-camPos: @Vector(2, i16),
+objects: [16]?ECS.Entity = .{null} ** 16,
+camPos: Coord,
 
 currentTile: ECS.Entity = undefined, 
 
-pub fn init(allocator: Allocator, camPos: @Vector(2, i16)) Self
+pub fn init(allocator: Allocator, camPos: Coord) Self
 {
   return .{
     .tiles = Tilemap.init(allocator),
@@ -34,7 +36,7 @@ pub fn init(allocator: Allocator, camPos: @Vector(2, i16)) Self
   };
 }
 
-pub fn generateTile(self: *Self, pos: @Vector(2, i16)) ECS.Entity
+pub fn generateTile(self: *Self, pos: Coord) ECS.Entity
 {
   var result: ECS.Entity = undefined;
   //Tile.init(Tile, null) catch |e| blk: {log.err("Tile allocation returned {}", .{e}); break :blk &self.currentTile;};
@@ -63,10 +65,10 @@ pub fn generateTile(self: *Self, pos: @Vector(2, i16)) ECS.Entity
   }
 
   if (@rem(pos[0], 2) == 0 and @rem(pos[1], 2) == 0 and
-    Tile.getStaticData(self.getTile(@Vector(2, i16){pos[0]-1, pos[1]})).?.walkable and
-    Tile.getStaticData(self.getTile(@Vector(2, i16){pos[0]+1, pos[1]})).?.walkable and
-    Tile.getStaticData(self.getTile(@Vector(2, i16){pos[0], pos[1]-1})).?.walkable and
-    Tile.getStaticData(self.getTile(@Vector(2, i16){pos[0], pos[1]+1})).?.walkable)
+    Tile.getStaticData(self.getTile(Coord{pos[0]-1, pos[1]})).?.walkable and
+    Tile.getStaticData(self.getTile(Coord{pos[0]+1, pos[1]})).?.walkable and
+    Tile.getStaticData(self.getTile(Coord{pos[0], pos[1]-1})).?.walkable and
+    Tile.getStaticData(self.getTile(Coord{pos[0], pos[1]+1})).?.walkable)
   {
     mainspace.ecs.getComponentPtr(result, "tileType", Tile.Type).?.* = .CyanideCarpet;
     mainspace.ecs.getComponentPtr(result, "sprite", Tile.Sprite).?.* = '.';
@@ -86,7 +88,7 @@ pub fn generateTile(self: *Self, pos: @Vector(2, i16)) ECS.Entity
   return result;
 }
 
-pub fn getTile(self: *Self, pos: @Vector(2, i16)) ECS.Entity
+pub fn getTile(self: *Self, pos: Coord) ECS.Entity
 {
   if (self.tiles.contains(pos))
   {
@@ -99,14 +101,13 @@ pub fn getTile(self: *Self, pos: @Vector(2, i16)) ECS.Entity
 }
 
 /// Returns whether a world position is inside the viewing rectangle
-pub fn inView(self: *Self, pos: @Vector(2, i16)) bool
+pub fn inView(self: *Self, pos: Coord) bool
 {
-  return @reduce(.And, pos >= self.camPos) and @reduce(.And, pos < self.camPos+@Vector(2, i16){@intCast(ncurses.COLS), @intCast(ncurses.LINES)});
+  return @reduce(.And, pos >= self.camPos) and @reduce(.And, pos < self.camPos+Coord{@intCast(ncurses.COLS), @intCast(ncurses.LINES)});
 }
 
 pub fn draw(self: *Self) void
 {
-        
   //_ = ncurses.mvaddnstr(1, 40, &std.fmt.bytesToHex(std.mem.toBytes(@as(u8, @intCast(this.camPos[0]))), .upper), 2);
   //_ = ncurses.mvaddnstr(1, 43, &std.fmt.bytesToHex(std.mem.toBytes(@as(u8, @intCast(this.camPos[1]))), .upper), 2);
 
@@ -118,16 +119,22 @@ pub fn draw(self: *Self) void
     {
       if (mainspace.ecs.getComponent(tile, "sprite", Tile.Sprite)) |sprite|
       {
-        _ = ncurses.mvaddch(@intCast(pos[1]-self.camPos[1]), @intCast(pos[0]-self.camPos[0]), sprite);
+        _ = ncurses.mvaddch(pos[1]-self.camPos[1], pos[0]-self.camPos[0], sprite);
       }
     }
   }
 
   for (self.objects) |object|
   {
-    if (object) |ptr|
+    if (object) |id|
     {
-      _ = ncurses.mvaddch(ptr.pos[1]-self.camPos[1], ptr.pos[0]-self.camPos[0], Object.StaticData[@intFromEnum(object.?.type)].ch);
+      if (Object.getStaticData(id)) |data|
+      {
+        if (mainspace.ecs.getComponent(id, "pos", Coord)) |pos|
+        {
+          _ = ncurses.mvaddch(pos[1]-self.camPos[1], pos[0]-self.camPos[0], data.ch);
+        }
+      }
     } else
     {
       break;

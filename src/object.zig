@@ -1,3 +1,5 @@
+const log = @import("std").log;
+
 const ECS = @import("ecs");
 const mainspace = @import("main.zig");
 
@@ -8,15 +10,13 @@ pub const staticData = [_]struct
   .{.ch = '@'},
 };
 
-pub const Type = enum {
+pub const Type = enum(u1) {
   Player,
 };
 
-pub const Pos = @Vector(2, i16);
-
 pub fn getStaticData(object: ECS.Entity) ?@TypeOf(staticData[0])
 {
-  const tileType: Type = mainspace.ecs.getComponent(object, "objectType", Type) orelse return null;
+  const objectType: Type = mainspace.ecs.getComponent(object, "objectType", Type) orelse return null;
 
-  return staticData[@intFromEnum(tileType)];
+  return staticData[@intFromEnum(objectType)];
 }

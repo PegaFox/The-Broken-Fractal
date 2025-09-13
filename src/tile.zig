@@ -21,7 +21,6 @@ pub const Type = enum(u8)
 {
   CyanideCarpet,
   YellowWallpaper,
-  MarkedYellowWallpaper,
 };
 
 pub const Sprite = u8;
