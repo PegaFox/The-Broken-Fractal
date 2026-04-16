@@ -10,7 +10,6 @@
 - Occasional security cameras
 - Occasional mold
 - Occasional intercoms with random voice lines
-- Graffiti
 - Red rooms can be found
 - Unlit areas can be found
 - Florescent lights
@@ -26,6 +25,9 @@
 - Rare emergency exit may lead to another level?
 - Rare sliding glass doors may lead to another level?
 - Wifi, radio, and locational devices like compasses fail/are defective
+- Graffiti
+  - Pre existing
+  - Manual creation - working
 
 - Random layout - working
 - Non-euclidean - working
@@ -45,3 +47,14 @@
 - Up to 4 entrances
 - Can meet with others, may spawn with explorers in it
 
+## TODO
+
+- Add perspective view (done)
+- Implement better save/load system
+- Add modding utils
+- Three map buffers (currently visible, previously visited, and true world) (done)
+- Add structure generation
+- Add inventories and item systems
+- Add new levels
+- Add enemies
+- Add new creature stats

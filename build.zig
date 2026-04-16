@@ -25,14 +25,14 @@ pub fn build(b: *std.Build) void {
     });
     exe_mod.addImport("ecs", ecs_lib.module("ecs-lib"));
 
+    exe_mod.linkSystemLibrary("ncurses", .{});
+
     // This creates another `std.Build.Step.Compile`, but this one builds an executable
     // rather than a static library.
     const exe = b.addExecutable(.{
         .name = "backrooms_roguelike",
         .root_module = exe_mod,
     });
-
-    exe.linkSystemLibrary("ncurses");
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default

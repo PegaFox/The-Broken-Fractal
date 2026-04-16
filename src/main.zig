@@ -2,17 +2,28 @@ const std = @import("std");
 const log = std.log;
 const Allocator = std.mem.Allocator;
 
-const ncurses = @cImport({@cInclude("ncurses.h");});
+pub const nc = @cImport({@cInclude("ncurses.h");});
+
+pub fn acs(ch: nc.chtype) nc.chtype
+{
+  return 0x400000 + ch;
+}
 
 const logger = @import("debug_log_fn.zig");
 const input = @import("input_handler.zig");
 
 const ECS = @import("ecs");
 
-const Scene = @import("scenes/scene.zig");
-const World = @import("world.zig");
+const appdata = @import("appdata.zig");
+const Scene = @import("scene.zig");
+const Level = @import("scenes/level.zig");
+const Level_0 = @import("levels/level_0.zig");
 const Object = @import("object.zig");
 const Player = @import("player.zig");
+const Sight = @import("sight.zig");
+const TileMemory = @import("tile_memory.zig");
+
+pub const level = &Level_0.level;
 
 pub const std_options = std.Options{
   .logFn = logger.debugLogFN,
@@ -21,47 +32,71 @@ pub const std_options = std.Options{
 pub var randomEngine = std.Random.DefaultPrng.init(0);
 pub var rand = randomEngine.random();
 
-pub var mainGPAllocator = std.heap.GeneralPurposeAllocator(.{}).init;
-pub var mainAllocator = mainGPAllocator.allocator();
+pub var allocator = std.heap.GeneralPurposeAllocator(.{}).init;
 
 pub var ecs: ECS = undefined;
-
-pub var scene: *Scene = undefined;
-pub var world: World = undefined;
-pub var worldBuffer: [World.minBufferSize()]u8 = undefined;
 
 pub var running: bool = true;
 
 pub fn main() !void
 {
-  ecs = .init(mainAllocator);
+  ecs = .init(allocator.allocator());
   defer ecs.deinit();
 
   log.info("Entered main function\n", .{});
 
-  _ = ncurses.initscr();
-  _ = ncurses.raw();
-  _ = ncurses.nodelay(ncurses.stdscr, true);
-  _ = ncurses.noecho();
-  _ = ncurses.keypad(ncurses.stdscr, true);
-  _ = ncurses.curs_set(0);
-  defer _ = ncurses.endwin();
-
   randomEngine.seed(@intCast(std.time.timestamp()));
   rand = randomEngine.random();
 
-  var fba = std.heap.FixedBufferAllocator.init(&worldBuffer);
-  world = World.init(fba.allocator(), -@divFloor(@Vector(2, i16){@intCast(ncurses.COLS), @intCast(ncurses.LINES)}, World.Coord{2, 2}));
-  world.objects[0] = ecs.addEntity(&.{"objectType", "pos"}, .{Object.Type.Player, World.Coord{0, 0}});
+  for (Scene.scenes.values) |scene|
+  {
+    _ = try scene.init(allocator.allocator());
+  }
 
-  scene = Scene.world.enter(&Scene.world);
+  defer for (Scene.scenes.values) |scene|
+  {
+    scene.deinit() catch unreachable;
+  };
+
+  level.objectCount = 1;
+  level.objects[0] = ecs.addEntityUnmanaged(.{
+    .objectType = Object.Type.Player,
+    .pos = Level.Coord{0, 0},
+    .sight = Sight{.radius = 15, .view = .init(allocator.allocator())},
+    .tileMemory = TileMemory{.tiles = .init(allocator.allocator())},
+  });
+  log.info("Initialized player as entity {}\n", .{level.objects[0]});
+
+  Scene.currentScene = try Scene.scenes.get(.Level).enter();
+
+  var err: c_int = nc.OK;
+  defer if (err != nc.OK) log.err("ncurses function failed\n", .{});
+
+  _ = nc.initscr() orelse {err = nc.ERR;};
+  err |= nc.raw();
+  err |= nc.nodelay(nc.stdscr, true);
+  err |= nc.noecho();
+  err |= nc.keypad(nc.stdscr, true);
+  err |= nc.curs_set(0);
+  defer err |= nc.endwin();
+
+  if (nc.can_change_color())
+  {
+    err |= nc.start_color();
+  }
 
   while (running)
   {
-    input.getInput();
+    try input.getInput();
     
-    scene.update(scene);
+    try Scene.currentScene.update();
 
-    scene.draw(scene);
+    err |= nc.erase();
+
+    try Scene.currentScene.draw();
+
+    err |= nc.refresh();
   }
+
+  try appdata.saveState();
 }
