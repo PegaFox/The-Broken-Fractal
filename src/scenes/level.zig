@@ -4,7 +4,6 @@ const Scene = @import("../scene.zig");
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayHashMap = std.AutoArrayHashMap;
 const log = std.log;
 const graphics = @import("../graphics.zig");
 
@@ -14,7 +13,7 @@ const mainspace = @import("../main.zig");
 
 pub const Coord = @Vector(2, i16);
 
-pub const Tilemap: type = ArrayHashMap(Coord, ECS.Entity.Unmanaged);
+pub const Tilemap: type = std.array_hash_map.Auto(Coord, ECS.Entity.Unmanaged);
 
 pub const VTable = struct
 {
@@ -25,7 +24,9 @@ pub const VTable = struct
 
 const maxObjects = 16;
 
-tiles: Tilemap,
+allocator: Allocator,
+
+tiles: Tilemap = .empty,
 
 objects: [maxObjects]ECS.Entity.Unmanaged = undefined,
 objectCount: std.math.IntFittingRange(0, maxObjects) = 0,
@@ -33,22 +34,6 @@ objectCount: std.math.IntFittingRange(0, maxObjects) = 0,
 vtable: VTable,
 
 scene: Scene,
-
-/// Initialises common values (eg. self.tiles)
-pub fn init(
-  allocator: Allocator,
-  vtable: Self.VTable,
-  sceneVTable: Scene.VTable) Self
-{
-  return .{
-    .tiles = .init(allocator),
-    .vtable = vtable,
-    .scene = .{
-      .id = .Level,
-      .vtable = sceneVTable
-    },
-  };
-}
 
 pub fn generateTile(self: *Self, pos: Coord)
   Allocator.Error!ECS.Entity.Unmanaged
@@ -87,7 +72,7 @@ pub fn inView(self: *Self, pos: Coord) bool
 /// Deinitialises common values (eg. self.tiles)
 pub fn deinit(self: *Self) void
 {
-  self.tiles.deinit();
+  self.tiles.deinit(self.allocator);
 
-  self.* = undefined;
+  self.tiles = .empty;
 }

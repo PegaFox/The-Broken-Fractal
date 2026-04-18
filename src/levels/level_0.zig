@@ -21,8 +21,7 @@ const sdl = mainspace.sdl;
 const maxTiles = 400;
 
 pub var level: Level = .{
-  .tiles = undefined,
-  .objects = undefined,
+  .allocator = undefined,
   .scene = .{.id = .Level, .vtable = sceneVTable},
   .vtable = vtable,
 };
@@ -30,7 +29,7 @@ pub var level: Level = .{
 const sceneVTable = Scene.VTable{
   .init = struct {fn init(allocator: Allocator) !*const Scene
   {
-    level = .init(allocator, vtable, sceneVTable);
+    level.allocator = allocator;
 
     return &level.scene;
   }}.init,
@@ -209,7 +208,7 @@ const vtable = Level.VTable{
         .CyanideCarpet;
     }
 
-    try self.tiles.put(pos, result);
+    try self.tiles.put(self.allocator, pos, result);
 
     return result;
   }}.generateTile,

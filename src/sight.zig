@@ -54,7 +54,9 @@ pub fn getView(self: *Self, parent: ECS.Entity.Unmanaged, level: *Level)
       try self.view.put(@intFromFloat(@round(rayPos)), undefined);
       if (parentMemory) |memory|
       {
-        try memory.tiles.put(@intFromFloat(@round(rayPos)), tile);
+        try memory.tiles.put(
+          level.allocator, @intFromFloat(@round(rayPos)), tile
+        );
       }
 
       if (mainspace.ecs.getComponent(

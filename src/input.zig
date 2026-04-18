@@ -1,4 +1,5 @@
 const std = @import("std");
+const Io = std.Io;
 const log = std.log;
 
 const graphics = @import("graphics.zig");
@@ -9,12 +10,13 @@ const mainspace = @import("main.zig");
 const nc = mainspace.nc;
 const sdl = mainspace.sdl;
 
-pub fn getInput() !void
+/// Io is used to get a timestamp for events
+pub fn getInput(io: Io) !void
 {
   // Emergency loop breakout
   for (0..100) |_|
   {
-    const event: sdl.SDL_Event = pollEvent() orelse break;
+    const event: sdl.SDL_Event = pollEvent(io) orelse break;
 
     switch (event.type)
     {
@@ -26,7 +28,8 @@ pub fn getInput() !void
   }
 }
 
-fn pollEvent() ?sdl.SDL_Event
+/// Io is used to get a timestamp for events
+fn pollEvent(io: Io) ?sdl.SDL_Event
 {
   var event: sdl.SDL_Event = undefined;
 
@@ -74,7 +77,9 @@ fn pollEvent() ?sdl.SDL_Event
       else => return null,
     };
 
-    event.common.timestamp = mainspace.timer.read();
+    event.common.timestamp = @truncate(
+      @max(0, mainspace.startTime.untilNow(io, .awake).toNanoseconds())
+    );
 
     return event;
   }
