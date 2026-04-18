@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 
 const ECS = @import("ecs");
 
+const graphics = @import("../graphics.zig");
 const tile = @import("../tile.zig");
 const Object = @import("../object.zig");
 const Player = @import("../player.zig");
@@ -14,6 +15,7 @@ const Level = @import("../scenes/level.zig");
 
 const mainspace = @import("../main.zig");
 const nc = mainspace.nc;
+const sdl = mainspace.sdl;
 
 // Remove extra tiles after this if possible
 const maxTiles = 400;
@@ -39,28 +41,35 @@ const sceneVTable = Scene.VTable{
     return &level.scene;
   }}.enter,
 
-  .getInput = struct {fn getInput(self: *const Scene, inputEvent: c_int) !void
+  .getInput = struct {fn getInput(
+    self: *const Scene,
+    inputEvent: sdl.SDL_Event) !void
   {
     const parent: *Level = @fieldParentPtr("scene", @constCast(self));
 
-    switch (inputEvent)
+    if (inputEvent.type == sdl.SDL_EVENT_KEY_DOWN)
     {
-      'h', nc.KEY_LEFT => try Player.move(parent, .{-1, 0}),
-      'y', nc.KEY_HOME => try Player.move(parent, .{-1, -1}),
-      'j', nc.KEY_DOWN => try Player.move(parent, .{0, 1}),
-      'b', nc.KEY_END => try Player.move(parent, .{-1, 1}),
-      'k', nc.KEY_UP => try Player.move(parent, .{0, -1}),
-      'u', nc.KEY_PPAGE => try Player.move(parent, .{1, -1}),
-      'l', nc.KEY_RIGHT => try Player.move(parent, .{1, 0}),
-      'n', nc.KEY_NPAGE => try Player.move(parent, .{1, 1}),
-      'W', => try Player.write(parent),
-      else => {},
+      switch (inputEvent.key.key)
+      {
+        sdl.SDLK_H, sdl.SDLK_LEFT => try Player.move(parent, .{-1, 0}),
+        sdl.SDLK_Y, sdl.SDLK_HOME => try Player.move(parent, .{-1, -1}),
+        sdl.SDLK_J, sdl.SDLK_DOWN => try Player.move(parent, .{0, 1}),
+        sdl.SDLK_B, sdl.SDLK_END => try Player.move(parent, .{-1, 1}),
+        sdl.SDLK_K, sdl.SDLK_UP => try Player.move(parent, .{0, -1}),
+        sdl.SDLK_U, sdl.SDLK_PAGEUP => try Player.move(parent, .{1, -1}),
+        sdl.SDLK_L, sdl.SDLK_RIGHT => try Player.move(parent, .{1, 0}),
+        sdl.SDLK_N, sdl.SDLK_PAGEDOWN => try Player.move(parent, .{1, 1}),
+        sdl.SDLK_W, =>
+          if (inputEvent.key.mod & sdl.SDL_KMOD_SHIFT != 0)
+            try Player.write(parent),
+        else => {},
+      }
     }
   }}.getInput,
 
   .update = struct {fn update(self: *const Scene) !void {_ = self;}}.update,
 
-  .draw = struct {fn draw(self: *const Scene) !void
+  .draw = struct {fn draw(self: *const Scene) graphics.Error!void
   {
     const parent: *Level = @fieldParentPtr("scene", @constCast(self));
 
@@ -114,9 +123,10 @@ const sceneVTable = Scene.VTable{
       {
         if (mainspace.ecs.getComponent(object, "pos", Level.Coord)) |pos|
         {
-          _ = nc.mvaddch(
-            pos[1]-camPos[1], pos[0]-camPos[0], data.ch
-          );
+          try graphics.drawCh(pos - camPos, data.ch);
+          //_ = nc.mvaddch(
+          //  pos[1]-camPos[1], pos[0]-camPos[0], data.ch
+          //);
         }
       }
     }
@@ -209,8 +219,6 @@ const vtable = Level.VTable{
     const playerPos =
       mainspace.ecs.getComponent(self.objects[0], "pos", Level.Coord).?;
 
-    const winSize = Level.Coord{@intCast(nc.COLS), @intCast(nc.LINES)};
-
-    return playerPos - winSize/@as(Level.Coord, @splat(2));
+    return playerPos - graphics.size()/@as(Level.Coord, @splat(2));
   }}.getCamPos,
 };

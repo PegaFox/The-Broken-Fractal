@@ -3,11 +3,13 @@ const Self = @This();
 const std = @import("std");
 const log = std.log;
 
+const graphics = @import("graphics.zig");
+const acs = graphics.acs;
+
 const ECS = @import("ecs");
-const Level = @import("level.zig");
+const Level = @import("scenes/level.zig");
 const mainspace = @import("main.zig");
 const nc = mainspace.nc;
-const acs = mainspace.acs;
 
 pub const staticData = [_]struct
 {
@@ -43,7 +45,7 @@ pub fn getStaticData(tile: ECS.Entity.Unmanaged) ?@TypeOf(staticData[0])
 }
 
 pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
-  error{TileNotFound}!void
+  (error{TileNotFound} || graphics.Error)!void
 {
   const tileType = mainspace.ecs.getComponent(
     tiles.get(pos) orelse return error.TileNotFound, "tileType", Type
@@ -87,7 +89,7 @@ pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
           else false,
       };
 
-      const ch: nc.chtype = switch (@as(u4, @bitCast(neighbors)))
+      const ch: graphics.Char = switch (@as(u4, @bitCast(neighbors)))
       {
         @as(u4, @bitCast(Neighbors{
           .up = false, .right = false, .down = false, .left = false
@@ -139,10 +141,12 @@ pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
         })) => acs('n'),//nc.ACS_PLUS,
       };
 
-      _ = nc.mvaddch(pos[1]-camPos[1], pos[0]-camPos[0], ch);
+      try graphics.drawCh(pos - camPos, ch);
+      //_ = nc.mvaddch(pos[1]-camPos[1], pos[0]-camPos[0], ch);
     },
     .CyanideCarpet => {
-      _ = nc.mvaddch(pos[1]-camPos[1], pos[0]-camPos[0], '.');
+      try graphics.drawCh(pos - camPos, '.');
+      //_ = nc.mvaddch(pos[1]-camPos[1], pos[0]-camPos[0], '.');
     },
   }
 }

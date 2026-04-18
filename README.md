@@ -58,3 +58,4 @@
 - Add new levels
 - Add enemies
 - Add new creature stats
+- Add graphical mode

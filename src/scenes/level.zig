@@ -6,11 +6,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayHashMap = std.AutoArrayHashMap;
 const log = std.log;
+const graphics = @import("../graphics.zig");
 
 const ECS = @import("ecs");
 const Player = @import("../player.zig");
 const mainspace = @import("../main.zig");
-const nc = mainspace.nc;
 
 pub const Coord = @Vector(2, i16);
 
@@ -80,7 +80,7 @@ pub fn inView(self: *Self, pos: Coord) bool
   return
     @reduce(.And, pos >= camPos) and
     @reduce(.And,
-      pos < camPos+Coord{@intCast(nc.COLS), @intCast(nc.LINES)}
+      pos < camPos+graphics.size()
     );
 }
 

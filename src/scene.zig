@@ -3,6 +3,9 @@ const Self = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const mainspace = @import("main.zig");
+const sdl = mainspace.sdl;
+
 pub const ID = enum
 {
   Level,
@@ -22,7 +25,8 @@ pub const VTable = struct
   
   enter: *const fn (self: *const Self) anyerror!*const Self,
   
-  getInput: *const fn (self: *const Self, inputEvent: c_int) anyerror!void,
+  getInput: *const fn (self: *const Self, inputEvent: sdl.SDL_Event)
+    anyerror!void,
   
   update: *const fn (self: *const Self) anyerror!void,
   
@@ -47,7 +51,7 @@ pub fn enter(self: *const Self) anyerror!*const Self
   return try self.vtable.enter(self);
 }
   
-pub fn getInput(self: *const Self, inputEvent: c_int) anyerror!void
+pub fn getInput(self: *const Self, inputEvent: sdl.SDL_Event) anyerror!void
 {
   try self.vtable.getInput(self, inputEvent);
 }

@@ -40,6 +40,10 @@
             .url = "git+https://github.com/PegaFox/ecs-lib.git#54c647cf5620a682281de422b0823c09698d30d3",
             .hash = "ecs_lib-0.1.2-BFwLt71XAAAqpy5Jre11iN2IkeL63IafvsMP4Kb4IsOW",
         },
+        .SDL_image = .{
+            .url = "git+https://github.com/allyourcodebase/SDL_image.git#288bc44cba10e542a872912f62e22160e91bb6dc",
+            .hash = "SDL_image-3.4.2--aJoHbkWAAA9Byk-voi8UuRvTFENE7UKtQUXs4fc_VSc",
+        },
     },
     .paths = .{
         "build.zig",

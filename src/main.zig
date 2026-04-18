@@ -1,20 +1,23 @@
 const std = @import("std");
 const log = std.log;
 const Allocator = std.mem.Allocator;
+const time = std.time;
+
+const builtin = @import("builtin");
 
 pub const nc = @cImport({@cInclude("ncurses.h");});
-
-pub fn acs(ch: nc.chtype) nc.chtype
-{
-  return 0x400000 + ch;
-}
+pub const sdl = @cImport({
+  @cInclude("SDL3/SDL.h");
+  @cInclude("SDL3_image/SDL_image.h");
+});
 
 const logger = @import("debug_log_fn.zig");
-const input = @import("input_handler.zig");
+const input = @import("input.zig");
+const graphics = @import("graphics.zig");
 
 const ECS = @import("ecs");
 
-const appdata = @import("appdata.zig");
+//const appdata = @import("appdata.zig");
 const Scene = @import("scene.zig");
 const Level = @import("scenes/level.zig");
 const Level_0 = @import("levels/level_0.zig");
@@ -36,16 +39,26 @@ pub var allocator = std.heap.GeneralPurposeAllocator(.{}).init;
 
 pub var ecs: ECS = undefined;
 
+pub var timer: time.Timer = undefined;
+
 pub var running: bool = true;
 
 pub fn main() !void
 {
+  timer = time.Timer.start() catch switch (builtin.os.tag)
+  {
+    .windows, .uefi, .wasi => .{
+      .started = .{.timestamp = 0}, .previous = .{.timestamp = 0}
+    },
+    else => unreachable,
+  };
+
   ecs = .init(allocator.allocator());
   defer ecs.deinit();
 
   log.info("Entered main function\n", .{});
 
-  randomEngine.seed(@intCast(std.time.timestamp()));
+  randomEngine.seed(@intCast(time.timestamp()));
   rand = randomEngine.random();
 
   for (Scene.scenes.values) |scene|
@@ -69,21 +82,8 @@ pub fn main() !void
 
   Scene.currentScene = try Scene.scenes.get(.Level).enter();
 
-  var err: c_int = nc.OK;
-  defer if (err != nc.OK) log.err("ncurses function failed\n", .{});
-
-  _ = nc.initscr() orelse {err = nc.ERR;};
-  err |= nc.raw();
-  err |= nc.nodelay(nc.stdscr, true);
-  err |= nc.noecho();
-  err |= nc.keypad(nc.stdscr, true);
-  err |= nc.curs_set(0);
-  defer err |= nc.endwin();
-
-  if (nc.can_change_color())
-  {
-    err |= nc.start_color();
-  }
+  graphics.init(true, null, null);
+  defer graphics.deinit();
 
   while (running)
   {
@@ -91,12 +91,12 @@ pub fn main() !void
     
     try Scene.currentScene.update();
 
-    err |= nc.erase();
+    try graphics.startFrame();
 
     try Scene.currentScene.draw();
 
-    err |= nc.refresh();
+    try graphics.endFrame();
   }
 
-  try appdata.saveState();
+//  try appdata.saveState();
 }

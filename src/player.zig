@@ -3,6 +3,8 @@ const Self = @This();
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
+const graphics = @import("graphics.zig");
+
 const Scene = @import("scene.zig");
 const WritingScene = @import("scenes/writing.zig");
 const Level = @import("scenes/level.zig");
@@ -11,17 +13,18 @@ const Object = @import("object.zig");
 const mainspace = @import("main.zig");
 const nc = mainspace.nc;
 
-pub fn displayInfo(message: []const u8) void
+pub fn displayInfo(message: []const u8) graphics.Error!void
 {
-  _ = nc.mvaddnstr(1, 1, message.ptr, @intCast(message.len));
+  try graphics.drawStr(.{1, 1}, message);
+  //_ = nc.mvaddnstr(1, 1, message.ptr, @intCast(message.len));
 }
 
-pub fn prompt(message: []const u8) i32
+pub fn prompt(message: []const u8) graphics.Error!i32
 {
   _ = nc.timeout(-1);
   defer _ = nc.timeout(0);
 
-  displayInfo(message);
+  try displayInfo(message);
   const result: i32 = nc.getch();
 
   return result;
@@ -52,7 +55,7 @@ pub fn move(level: *Level, offset: Level.Coord) Allocator.Error!void
 
 pub fn write(level: *Level) !void
 {
-  const response = prompt("What to write on? (direction key)");
+  const response = try prompt("What to write on? (direction key)");
 
   const dir = switch (response)
   {
