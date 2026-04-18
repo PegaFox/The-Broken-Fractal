@@ -27,6 +27,11 @@ const Player = @import("player.zig");
 const Sight = @import("sight.zig");
 const TileMemory = @import("tile_memory.zig");
 
+const StartOptions = struct {
+  useTerminal: ?bool = null,
+  useWindow: ?bool = null,
+};
+
 pub const level = &Level_0.level;
 
 pub const std_options = std.Options{
@@ -53,6 +58,8 @@ pub fn main(init: std.process.Init) !void
   //  },
   //  else => unreachable,
   //};
+    
+  const options = try handleArgs(init.minimal.args, init.gpa) orelse return;
 
   ecs = .init(init.gpa);
   defer ecs.deinit();
@@ -83,7 +90,7 @@ pub fn main(init: std.process.Init) !void
 
   Scene.currentScene = try Scene.scenes.get(.Level).enter();
 
-  graphics.init(true, null, null);
+  graphics.init(options.useTerminal, options.useWindow, null);
   defer graphics.deinit();
 
   while (running)
@@ -100,4 +107,67 @@ pub fn main(init: std.process.Init) !void
   }
 
 //  try appdata.saveState();
+}
+
+fn handleArgs(args: std.process.Args, allocator: Allocator)
+  Allocator.Error!?StartOptions
+{
+  var result = StartOptions{};
+
+  var it = try args.iterateAllocator(allocator);
+  defer it.deinit();
+  while (it.next()) |arg|
+  {
+    if ((std.mem.find(u8, arg, "-h") orelse 2) < 2)
+    {
+      std.debug.print(
+        \\The Broken Fractal - A roguelike based off of the backrooms
+        \\
+        \\Usage:
+        \\  fractal [options]
+        \\
+        \\Options:
+        \\  -h, --help                   Show this help text
+        \\  -t, --terminal [=true|false] Force running through a TTY with ANSI escape codes
+        \\  -w, --window   [=true|false] Force running through a graphical window
+        \\
+        \\Examples:
+        \\
+        \\  Show this help text:
+        \\    fractal -h
+        \\
+        \\  Launch exclusively through a terminal:
+        \\    fractal --terminal=true --window=false
+        \\
+        \\  Launch headless:
+        \\    fractal --terminal=false --window=false
+        \\
+      , .{});
+      return null;
+    }
+
+    if ((std.mem.find(u8, arg, "-t") orelse 2) < 2)
+    {
+      if (std.mem.find(u8, arg, "=false") != null)
+      {
+        result.useTerminal = false;
+      } else
+      {
+        result.useTerminal = true;
+      }
+    }
+
+    if ((std.mem.find(u8, arg, "-w") orelse 2) < 2)
+    {
+      if (std.mem.find(u8, arg, "=false") != null)
+      {
+        result.useWindow = false;
+      } else
+      {
+        result.useWindow = true;
+      }
+    }
+  }
+
+  return result;
 }

@@ -47,6 +47,10 @@
 - Up to 4 entrances
 - Can meet with others, may spawn with explorers in it
 
+### Level 1 notes:
+
+
+
 ## TODO
 
 - Add perspective view (done)
