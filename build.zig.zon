@@ -37,12 +37,20 @@
     // internet connectivity.
     .dependencies = .{
         .ecs_lib = .{
-            .url = "git+https://github.com/PegaFox/ecs-lib.git#54c647cf5620a682281de422b0823c09698d30d3",
-            .hash = "ecs_lib-0.1.2-BFwLt71XAAAqpy5Jre11iN2IkeL63IafvsMP4Kb4IsOW",
+            .url = "git+https://github.com/PegaFox/ecs-lib.git#63411b2608a472b5a89cc46a749b8a56af4a0099",
+            .hash = "ecs_lib-0.2.0-BFwLtyFdAADYdS63yD4W_3J5CR3pKBkB7mXR24uoxc_h",
         },
         .SDL_image = .{
             .url = "git+https://github.com/allyourcodebase/SDL_image.git#288bc44cba10e542a872912f62e22160e91bb6dc",
             .hash = "SDL_image-3.4.2--aJoHbkWAAA9Byk-voi8UuRvTFENE7UKtQUXs4fc_VSc",
+        },
+        //.lua = .{
+        //    .url = "git+https://github.com/allyourcodebase/lua.git#5a5a4135cbb8991f27c01bce341fd93134dbecd1",
+        //    .hash = "lua-5.4.7-zqrcyuUjAAA4YBuZ47elrKT7DSeNx9c3K9XE2YlCoiSz",
+        //},
+        .lua = .{
+            .url = "git+https://github.com/PegaFox/allyourcodebase-lua.git#9d12e6d06f80d90d5cb478b79fe086b9b1df042f",
+            .hash = "lua-5.4.7-zqrcysUiAACQA04jcT5JHRCbEGsI24cGqRbM_LPwDXWn",
         },
     },
     .paths = .{

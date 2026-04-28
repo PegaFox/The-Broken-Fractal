@@ -13,7 +13,7 @@ pub const ID = enum
 };
 
 pub var scenes = std.EnumArray(ID, *const Self).init(.{
-  .Level = &@import("levels/level_0.zig").level.scene,
+  .Level = &@import("scenes/level.zig").interface,
   .Writing = &@import("scenes/writing.zig").scene,
 });
 

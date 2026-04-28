@@ -17,11 +17,8 @@ const mainspace = @import("../main.zig");
 const nc = mainspace.nc;
 const sdl = mainspace.sdl;
 
-// Remove extra tiles after this if possible
-const maxTiles = 400;
-
 pub var level: Level = .{
-  .id = .Level0,
+  .id = .Level1,
   .allocator = undefined,
   .scene = .{.id = .Level, .vtable = sceneVTable},
   .vtable = vtable,
@@ -62,7 +59,7 @@ const sceneVTable = Scene.VTable{
         sdl.SDLK_W, =>
           if (inputEvent.key.mod & sdl.SDL_KMOD_SHIFT != 0)
             try Player.write(parent),
-        sdl.SDLK_T => Level.currentLevel = Level.levels.get(.Level1),
+        sdl.SDLK_T => Level.currentLevel = Level.levels.get(.Level0),
         else => {},
       }
     }
@@ -138,26 +135,6 @@ const sceneVTable = Scene.VTable{
         }
       }
     }
-
-    var keys = parent.tiles.keys();
-    for (keys) |key|
-    {
-      if (parent.tiles.count() <= maxTiles)
-      {
-        break;
-      }
-
-      if (!playerSight.inView(key))
-      {
-        log.debug("Remove tile {}\n", .{
-          key - mainspace.ecs.getComponent(
-            Level.objects.items[0].id, "pos", Level.Coord
-          ).?
-        });
-        if (!parent.tiles.orderedRemove(key)) unreachable;
-        keys = parent.tiles.keys();
-      }
-    }
   }}.draw,
 
   .exit = struct {fn exit(self: *const Scene) !void {_ = self;}}.exit,
@@ -174,47 +151,16 @@ const vtable = Level.VTable{
     Allocator.Error!ECS.Entity.Unmanaged
   {
     var result: ECS.Entity.Unmanaged = undefined;
-    if (@mod(pos[0], 2) == 1 and @mod(pos[1], 2) == 1)
-    {
-      result = mainspace.ecs.addEntity(.{
-        .tileType = tile.Type.CyanideCarpet,
-      }).id;
-    } else if (@mod(pos[0], 2) == 0 and @mod(pos[1], 2) == 0)
+    if (@mod(pos[0], 6) < 2 and @mod(pos[1], 6) < 2)
     {
       result = mainspace.ecs.addEntity(.{
         .tileType = tile.Type.YellowWallpaper,
       }).id;
     } else
     {
-      if (mainspace.rand.uintLessThan(u2, 3) == 0)
-      {
-        result = mainspace.ecs.addEntity(.{
-          .tileType = tile.Type.YellowWallpaper,
-        }).id;
-      } else
-      {
-        result = mainspace.ecs.addEntity(.{
-          .tileType = tile.Type.CyanideCarpet,
-        }).id;
-      }
-    }
-
-    if (@rem(pos[0], 2) == 0 and @rem(pos[1], 2) == 0 and
-      tile.getStaticData(
-        try self.getTile(Level.Coord{pos[0]-1, pos[1]})
-      ).?.walkable and
-      tile.getStaticData(
-        try self.getTile(Level.Coord{pos[0]+1, pos[1]})
-      ).?.walkable and
-      tile.getStaticData(
-        try self.getTile(Level.Coord{pos[0], pos[1]-1})
-      ).?.walkable and
-      tile.getStaticData(
-        try self.getTile(Level.Coord{pos[0], pos[1]+1})
-      ).?.walkable)
-    {
-      mainspace.ecs.getComponentPtr(result, "tileType", tile.Type).?.* =
-        .CyanideCarpet;
+      result = mainspace.ecs.addEntity(.{
+        .tileType = tile.Type.CyanideCarpet,
+      }).id;
     }
 
     try self.tiles.put(self.allocator, pos, result);

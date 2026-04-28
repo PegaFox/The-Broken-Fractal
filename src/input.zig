@@ -33,14 +33,14 @@ fn pollEvent(io: Io) ?sdl.SDL_Event
 {
   var event: sdl.SDL_Event = undefined;
 
-  if (graphics.sdlWindow != null)
+  if (graphics.sdlData != null)
   {
     // Conditional returns on success so we can fetch both events depending on window/terminal focus
     if (sdl.SDL_PollEvent(&event))
       return event;
   }
 
-  if (graphics.ncurses)
+  if (graphics.ncData != null)
   {
     const key: c_int = nc.getch();
 

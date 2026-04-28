@@ -22,6 +22,13 @@ pub fn build(b: *std.Build) void
     .optimize = optimize
   });
 
+  const lua = b.dependency("lua", .{
+    .target = target,
+    .release = optimize != .Debug,
+  });
+  const luaLib =
+    lua.artifact(if (target.result.os.tag == .windows) "lua54" else "lua");
+
   // We will also create a module for our other entry point, 'main.zig'.
   const exe_mod = b.createModule(.{
     // `root_source_file` is the Zig "entry point" of the module. If a module
@@ -38,8 +45,10 @@ pub fn build(b: *std.Build) void
   });
 
   exe_mod.linkSystemLibrary("ncurses", .{});
+  exe_mod.linkLibrary(luaLib);
   exe_mod.linkLibrary(sdl.artifact("SDL3"));
   exe_mod.linkLibrary(sdlImage.artifact("SDL3_image"));
+  exe_mod.addIncludePath(lua.path("src"));
   exe_mod.addIncludePath(sdl.path("include"));
   exe_mod.addIncludePath(sdlImage.path("include"));
 
@@ -54,6 +63,11 @@ pub fn build(b: *std.Build) void
   // standard location when the user invokes the "install" step (the default
   // step when running `zig build`).
   b.installArtifact(exe);
+  b.installDirectory(.{
+    .source_dir = .{.src_path = .{.owner = b, .sub_path = "mods"}},
+    .install_dir = .bin,
+    .install_subdir = "mods",
+  });
 
   // This *creates* a Run step in the build graph, to be executed when another
   // step is evaluated that depends on it. The next line below will establish
@@ -90,4 +104,19 @@ pub fn build(b: *std.Build) void
   // running the unit tests.
   const test_step = b.step("test", "Run unit tests");
   test_step.dependOn(&run_exe_unit_tests.step);
+
+  // This is where the interesting part begins.
+  // As you can see we are re-defining the same executable but
+  // we're binding it to a dedicated build step.
+  const exe_check = b.addExecutable(.{
+      .name = "fractal",
+      .root_module = exe_mod,
+  });
+  // There is no `b.installArtifact(exe_check);` here.
+  
+  // Finally we add the "check" step which will be detected
+  // by ZLS and automatically enable Build-On-Save.
+  // If you copy this into your `build.zig`, make sure to rename 'foo'
+  const check = b.step("check", "Check if the app compiles");
+  check.dependOn(&exe_check.step);
 }

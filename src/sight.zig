@@ -4,7 +4,7 @@ const Self = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ViewMap = std.AutoHashMap(Level.Coord, void);
+const ViewMap = std.AutoHashMapUnmanaged(Level.Coord, void);
 
 const ECS = @import("ecs");
 const Tile = @import("tile.zig");
@@ -51,7 +51,9 @@ pub fn getView(self: *Self, parent: ECS.Entity.Unmanaged, level: *Level)
     {
       const tile = try level.getTile(@intFromFloat(@round(rayPos)));
 
-      try self.view.put(@intFromFloat(@round(rayPos)), undefined);
+      try self.view.put(
+        level.allocator, @intFromFloat(@round(rayPos)), undefined
+      );
       if (parentMemory) |memory|
       {
         try memory.tiles.put(

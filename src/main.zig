@@ -12,6 +12,8 @@ pub const sdl = @cImport({
   @cInclude("SDL3_image/SDL_image.h");
 });
 
+const directories = @import("directories.zig");
+const mod = @import("mod.zig");
 const logger = @import("debug_log_fn.zig");
 const input = @import("input.zig");
 const graphics = @import("graphics.zig");
@@ -31,8 +33,6 @@ const StartOptions = struct {
   useTerminal: ?bool = null,
   useWindow: ?bool = null,
 };
-
-pub const level = &Level_0.level;
 
 pub const std_options = std.Options{
   .logFn = logger.debugLogFN,
@@ -58,39 +58,73 @@ pub fn main(init: std.process.Init) !void
   //  },
   //  else => unreachable,
   //};
+  log.info("Entered main function\n", .{});
     
   const options = try handleArgs(init.minimal.args, init.gpa) orelse return;
 
   ecs = .init(init.gpa);
   defer ecs.deinit();
 
-  log.info("Entered main function\n", .{});
-
   randomEngine.seed(@bitCast(startTime.toMilliseconds()));
   rand = randomEngine.random();
 
+  directories.initSearchPaths(init.io);
+  try mod.loadAll(init.io);
+  defer mod.unloadAll(init.io);
+
   for (Scene.scenes.values) |scene|
   {
+    // The level scene's init function is invalid
+    if (scene.id == .Level)
+    {
+      continue;
+    }
+
     _ = try scene.init(init.gpa);
   }
 
   defer for (Scene.scenes.values) |scene|
   {
+    // The level scene's deinit function is invalid
+    if (scene.id == .Level)
+    {
+      continue;
+    }
+
     scene.deinit() catch unreachable;
   };
 
-  level.objectCount = 1;
-  level.objects[0] = ecs.addEntityUnmanaged(.{
-    .objectType = Object.Type.Player,
-    .pos = Level.Coord{0, 0},
-    .sight = Sight{.radius = 15, .view = .init(init.gpa)},
+  for (Level.levels.values) |level|
+  {
+    _ = try level.scene.init(init.gpa);
+  }
+
+  defer for (Level.levels.values) |level|
+  {
+    level.scene.deinit() catch unreachable;
+  };
+
+  // TODO: Add small chance of levels 1 or 2
+  Level.currentLevel = Level.levels.get(.Level0);
+
+  try Level.objects.append(init.gpa, .init(.Player, .{0, 0}, .{
+    .sight = Sight{.radius = 15, .view = .empty},
     .tileMemory = TileMemory{.tiles = .empty},
-  });
-  log.info("Initialized player as entity {}\n", .{level.objects[0]});
+  }));
 
-  Scene.currentScene = try Scene.scenes.get(.Level).enter();
+  defer ecs.getPtr(
+    Level.objects.items[0].id, "tileMemory", TileMemory
+  ).?.tiles.deinit(init.gpa);
+  defer ecs.getPtr(
+    Level.objects.items[0].id, "sight", Sight
+  ).?.view.deinit(init.gpa);
 
-  graphics.init(options.useTerminal, options.useWindow, null);
+  log.info("Initialized player as entity {}\n", .{Level.objects.items[0]});
+
+  Scene.currentScene = Scene.scenes.get(.Level);
+  _ = try Scene.currentScene.enter();
+
+  try graphics.init(init.gpa, options.useTerminal, options.useWindow, null);
   defer graphics.deinit();
 
   while (running)
@@ -99,12 +133,19 @@ pub fn main(init: std.process.Init) !void
     
     try Scene.currentScene.update();
 
+    log.info("Start frame\n", .{});
     try graphics.startFrame();
 
-    try Scene.currentScene.draw();
+    Scene.currentScene.draw() catch |e| switch (e)
+    {
+      graphics.Error.RenderFail => log.warn("Frame failed to render\n", .{}),
+      else => return e,
+    };
 
     try graphics.endFrame();
   }
+
+  log.info("Exited main function\n", .{});
 
 //  try appdata.saveState();
 }

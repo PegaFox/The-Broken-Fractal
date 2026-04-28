@@ -2,6 +2,8 @@ const std = @import("std");
 const Io = std.Io;
 const Dir = Io.Dir;
 
+const mainspace = @import("main.zig");
+
 var firstLog = false;
 
 pub fn debugLogFN(
@@ -37,6 +39,18 @@ pub fn debugLogFN(
     std.debug.print("ERROR: Failed to append to file\n", .{});
     return;
   };
+
+  log.interface.printAsciiChar('(', .{}) catch
+    std.debug.print("ERROR: Failed to log to file\n", .{});
+
+  mainspace.startTime.untilNow(io, .awake).format(&log.interface) catch
+  {
+    std.debug.print("ERROR: Failed to append to file\n", .{});
+    return;
+  };
+
+  log.interface.printAsciiChar(')', .{}) catch
+    std.debug.print("ERROR: Failed to log to file\n", .{});
 
   comptime var levelStr: [message_level.asText().len]u8 =
     message_level.asText()[0..].*;

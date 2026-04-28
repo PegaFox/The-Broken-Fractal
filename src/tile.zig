@@ -9,39 +9,30 @@ const acs = graphics.acs;
 const ECS = @import("ecs");
 const Level = @import("scenes/level.zig");
 const mainspace = @import("main.zig");
-const nc = mainspace.nc;
 
-pub const staticData = [_]struct
+pub var staticData = std.ArrayList(struct
 {
+  name: []const u8,
   walkable: bool,
-  transparent: bool,
-}{
-  .{.walkable = true, .transparent = true},
-  .{.walkable = false, .transparent = false},
-  .{.walkable = false, .transparent = false},
-};
+  wallConnect: bool,
+  ch: u8,
+}).empty;
 
-pub const Type = enum(u8)
-{
-  CyanideCarpet,
-  YellowWallpaper,
-};
+pub const Type = u16;
+//pub const Type = enum(u8)
+//{
+//  CyanideCarpet,
+//  YellowWallpaper,
+//};
 
 pub const Sprite = u8;
 
-pub const Color = struct
-{
-  red: u8,
-  green: u8,
-  blue: u8,
-};
-
-pub fn getStaticData(tile: ECS.Entity.Unmanaged) ?@TypeOf(staticData[0])
+pub fn getStaticData(tile: ECS.Entity.Unmanaged) ?@TypeOf(staticData.items[0])
 {
   const tileType: Type =
     mainspace.ecs.getComponent(tile, "tileType", Type) orelse return null;
 
-  return staticData[@intFromEnum(tileType)];
+  return staticData.items[tileType];
 }
 
 pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)

@@ -33,7 +33,7 @@ pub fn prompt(message: []const u8) graphics.Error!i32
 pub fn move(level: *Level, offset: Level.Coord) Allocator.Error!void
 {
   const pos =
-    mainspace.ecs.getComponentPtr(level.objects[0], "pos", Level.Coord).?;
+    mainspace.ecs.getPtr(Level.objects.items[0].id, "pos", Level.Coord).?;
   if (Tile.getStaticData(try level.getTile(@bitCast(pos.*+offset))).?.walkable)
   {
     pos.* += offset;
@@ -72,7 +72,7 @@ pub fn write(level: *Level) !void
   };
 
   const selectedTile = try level.getTile(
-    mainspace.ecs.getComponent(level.objects[0], "pos", Level.Coord).? + dir
+    mainspace.ecs.get(Level.objects.items[0].id, "pos", Level.Coord).? + dir
   );
 
   mainspace.ecs.getComponentPtr(selectedTile, "sprite", Tile.Sprite).?.* = '~';
