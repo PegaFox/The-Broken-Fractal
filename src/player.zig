@@ -8,7 +8,7 @@ const graphics = @import("graphics.zig");
 const Scene = @import("scene.zig");
 const WritingScene = @import("scenes/writing.zig");
 const Level = @import("scenes/level.zig");
-const Tile = @import("tile.zig");
+const tile = @import("tile.zig");
 const Object = @import("object.zig");
 const mainspace = @import("main.zig");
 const nc = mainspace.nc;
@@ -34,7 +34,7 @@ pub fn move(level: *Level, offset: Level.Coord) Allocator.Error!void
 {
   const pos =
     mainspace.ecs.getPtr(Level.objects.items[0].id, "pos", Level.Coord).?;
-  if (Tile.getStaticData(try level.getTile(@bitCast(pos.*+offset))).?.walkable)
+  if (tile.getStaticData(try level.getTile(@bitCast(pos.*+offset))).?.walkable)
   {
     pos.* += offset;
     //level.camPos += offset;
@@ -75,7 +75,7 @@ pub fn write(level: *Level) !void
     mainspace.ecs.get(Level.objects.items[0].id, "pos", Level.Coord).? + dir
   );
 
-  mainspace.ecs.getComponentPtr(selectedTile, "sprite", Tile.Sprite).?.* = '~';
+  mainspace.ecs.getComponentPtr(selectedTile, "sprite", tile.Sprite).?.* = '~';
 
   WritingScene.writingBuffer =
     (mainspace.ecs.getComponentPtr(selectedTile, "markings", [64]u8) orelse blk:

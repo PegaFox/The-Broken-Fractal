@@ -3,11 +3,12 @@
 const Self = @This();
 
 const std = @import("std");
+const log = std.log;
 const Allocator = std.mem.Allocator;
 const ViewMap = std.AutoHashMapUnmanaged(Level.Coord, void);
 
 const ECS = @import("ecs");
-const Tile = @import("tile.zig");
+const tile = @import("tile.zig");
 const TileMemory = @import("tile_memory.zig");
 const Level = @import("scenes/level.zig");
 const mainspace = @import("main.zig");
@@ -49,20 +50,19 @@ pub fn getView(self: *Self, parent: ECS.Entity.Unmanaged, level: *Level)
     var rayPos: @Vector(2, f32) = @floatFromInt(parentPos);
     for (0..self.radius) |_|
     {
-      const tile = try level.getTile(@intFromFloat(@round(rayPos)));
+      const lookTile = try level.getTile(@intFromFloat(@round(rayPos)));
 
       try self.view.put(
-        level.allocator, @intFromFloat(@round(rayPos)), undefined
+        Level.gpa, @intFromFloat(@round(rayPos)), undefined
       );
       if (parentMemory) |memory|
       {
         try memory.tiles.put(
-          level.allocator, @intFromFloat(@round(rayPos)), tile
+          Level.gpa, @intFromFloat(@round(rayPos)), lookTile
         );
       }
 
-      if (mainspace.ecs.getComponent(
-        tile, "tileType", Tile.Type).? == .YellowWallpaper)
+      if (!tile.getStaticData(lookTile).?.walkable)
       {
         break;
       }

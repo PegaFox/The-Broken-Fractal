@@ -32,6 +32,11 @@ const TileMemory = @import("tile_memory.zig");
 const StartOptions = struct {
   useTerminal: ?bool = null,
   useWindow: ?bool = null,
+
+  /// What is even this
+  logFile: [Io.Dir.max_path_bytes]u8 =
+    ("log.log" ++ (.{undefined} ** (Io.Dir.max_path_bytes-"log.log".len))).*,
+  logFileLen: usize = "log.log".len,
 };
 
 pub const std_options = std.Options{
@@ -51,17 +56,17 @@ pub var running: bool = true;
 
 pub fn main(init: std.process.Init) !void
 {
-  startTime = .now(init.io, .awake);// catch switch (builtin.os.tag)
-  //{
-  //  .windows, .uefi, .wasi => .{
-  //    .started = .{.timestamp = 0}, .previous = .{.timestamp = 0}
-  //  },
-  //  else => unreachable,
-  //};
+  startTime = .now(init.io, .awake);
+
+  const options = try handleArgs(init.minimal.args, init.gpa) orelse return;
+  @memcpy(
+    logger.logFilePath[0..options.logFileLen],
+    options.logFile[0..options.logFileLen]
+  );
+  logger.logFilePathLen = options.logFileLen;
+
   log.info("Entered main function\n", .{});
     
-  const options = try handleArgs(init.minimal.args, init.gpa) orelse return;
-
   ecs = .init(init.gpa);
   defer ecs.deinit();
 
@@ -69,17 +74,11 @@ pub fn main(init: std.process.Init) !void
   rand = randomEngine.random();
 
   directories.initSearchPaths(init.io);
-  try mod.loadAll(init.io);
-  defer mod.unloadAll(init.io);
+  try mod.loadAll(init.io, init.gpa);
+  defer mod.unloadAll(init.gpa, false);
 
   for (Scene.scenes.values) |scene|
   {
-    // The level scene's init function is invalid
-    if (scene.id == .Level)
-    {
-      continue;
-    }
-
     _ = try scene.init(init.gpa);
   }
 
@@ -94,18 +93,21 @@ pub fn main(init: std.process.Init) !void
     scene.deinit() catch unreachable;
   };
 
-  for (Level.levels.values) |level|
-  {
-    _ = try level.scene.init(init.gpa);
-  }
+  //for (Level.levels.items) |level|
+  //{
+  //  _ = try level.scene.init(init.gpa);
+  //}
 
-  defer for (Level.levels.values) |level|
+  defer Level.interface.deinit() catch unreachable;
+  defer for (Level.levels.items) |*level|
   {
-    level.scene.deinit() catch unreachable;
+    Level.deinit(level);
   };
 
   // TODO: Add small chance of levels 1 or 2
-  Level.currentLevel = Level.levels.get(.Level0);
+  // TODO: Remove currentLevel, instead use the level coordinate of player
+  // TODO: Move this logic to base mod (set player position to level on mod init)
+  Level.currentLevel = 0;
 
   try Level.objects.append(init.gpa, .init(.Player, .{0, 0}, .{
     .sight = Sight{.radius = 15, .view = .empty},
@@ -127,13 +129,20 @@ pub fn main(init: std.process.Init) !void
   try graphics.init(init.gpa, options.useTerminal, options.useWindow, null);
   defer graphics.deinit();
 
+  //var frameStart = Timestamp.zero;
   while (running)
   {
+    //const newFrame = Timestamp.now(init.io, .awake);
+    //const frameTime: f64 =
+    //  @floatFromInt(frameStart.durationTo(newFrame).toMicroseconds());
+    //frameStart = newFrame;
+    //log.info("FPS: {} ({})\n", .{std.time.us_per_s / frameTime, frameTime});
+
     try input.getInput(init.io);
     
     try Scene.currentScene.update();
 
-    log.info("Start frame\n", .{});
+    //log.info("Start frame\n", .{});
     try graphics.startFrame();
 
     Scene.currentScene.draw() catch |e| switch (e)
@@ -150,8 +159,9 @@ pub fn main(init: std.process.Init) !void
 //  try appdata.saveState();
 }
 
+const ArgError = error{MissingArgument};
 fn handleArgs(args: std.process.Args, allocator: Allocator)
-  Allocator.Error!?StartOptions
+  (ArgError || Allocator.Error)!?StartOptions
 {
   var result = StartOptions{};
 
@@ -171,6 +181,7 @@ fn handleArgs(args: std.process.Args, allocator: Allocator)
         \\  -h, --help                   Show this help text
         \\  -t, --terminal [=true|false] Force running through a TTY with ANSI escape codes
         \\  -w, --window   [=true|false] Force running through a graphical window
+        \\  -l, --log-file <=| > <file>  Override logging output file (default ./log.log)
         \\
         \\Examples:
         \\
@@ -206,6 +217,22 @@ fn handleArgs(args: std.process.Args, allocator: Allocator)
       } else
       {
         result.useWindow = true;
+      }
+    }
+
+    if ((std.mem.find(u8, arg, "-l") orelse 2) < 2)
+    {
+      if (std.mem.find(u8, arg, "=")) |pos|
+      {
+        @memcpy(result.logFile[0..arg.len-pos-1], arg[pos+1..arg.len]);
+        result.logFileLen = arg.len-pos-1;
+      } else if (it.next()) |path|
+      {
+        @memcpy(result.logFile[0..path.len], path);
+        result.logFileLen = path.len;
+      } else
+      {
+        return error.MissingArgument;
       }
     }
   }

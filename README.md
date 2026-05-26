@@ -1,5 +1,4 @@
 
-
 ### Level 0 notes:
 
 - Rumors of starting in levels 1 or 2 instead of 0
@@ -105,6 +104,9 @@
 
 - Add perspective view (done)
 - Three map buffers (currently visible, previously visited, and true world) (done)
+- Add small chance of levels 1 or 2
+- Remove currentLevel, instead use the level coordinate of player
+- Move spawn level logic to base mod (set player position to level on mod init)
 - Implement better save/load system
 - Add developer console
 - Add modding utils

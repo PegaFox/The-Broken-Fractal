@@ -2,7 +2,10 @@ const Self = @This();
 
 const std = @import("std");
 const log = std.log;
+const Allocator = std.mem.Allocator;
+const json = std.json;
 
+const Mod = @import("mod.zig");
 const graphics = @import("graphics.zig");
 const acs = graphics.acs;
 
@@ -10,13 +13,81 @@ const ECS = @import("ecs");
 const Level = @import("scenes/level.zig");
 const mainspace = @import("main.zig");
 
-pub var staticData = std.ArrayList(struct
+pub const StaticData = struct
 {
   name: []const u8,
   walkable: bool,
+  color: graphics.Color,
   wallConnect: bool,
   ch: u8,
-}).empty;
+
+  /// source is a *json.Scanner or a *json.Reader
+  pub fn jsonParse(
+    allocator: Allocator,
+    source: anytype,
+    options: json.ParseOptions,
+  ) json.ParseError(@TypeOf(source.*))!@This()
+  {
+    var result: @This() = undefined;
+
+    if (try source.next() != .object_begin) return error.UnexpectedToken;
+
+    // Stall protection
+    for (0..100) |_|
+    {
+      const token: ?json.Token = try source.nextAllocMax(
+        allocator, .alloc_if_needed, options.max_value_len.?
+      );//log.debug("Parsing token {}\n", .{token.?});
+      const fieldNameHash = std.hash_map.hashString(switch (token.?) {
+        inline .string, .allocated_string => |slice| slice,
+        .object_end => { // No more fields.
+          break;
+        },
+        else => {
+          return error.UnexpectedToken;
+        },
+      });
+      if (token.? == .allocated_string)
+      {
+        allocator.free(token.?.allocated_string);
+      }
+      
+      switch (fieldNameHash)
+      {
+        std.hash_map.hashString("name") => result.name =
+          try json.innerParse([]const u8, allocator, source, options),
+        std.hash_map.hashString("walkable") => result.walkable =
+          try json.innerParse(bool, allocator, source, options),
+        std.hash_map.hashString("color") => {
+          const colorRGB = try json.innerParse(
+            struct {r: f32, g: f32, b: f32}, allocator, source, options
+          );
+          result.color = .{colorRGB.r, colorRGB.g, colorRGB.b};
+        },
+        std.hash_map.hashString("wallConnect") => result.wallConnect =
+          try json.innerParse(bool, allocator, source, options),
+        std.hash_map.hashString("ch") => {
+          const chStr =
+            try json.innerParse([]const u8, allocator, source, options);
+          result.ch = if (chStr.len > 0) chStr[0] else ' ';
+        },
+        else => 
+          if (options.ignore_unknown_fields) {
+            try source.skipValue();
+          } else {
+            return error.UnknownField;
+          }
+      }
+    }
+
+    return result;
+  }
+};
+pub var staticData = std.ArrayList(StaticData).empty;
+
+pub var nameTypes = std.HashMapUnmanaged(
+  Mod.Identifier, Type, Mod.Identifier.HashContext, 80
+).empty;
 
 pub const Type = u16;
 //pub const Type = enum(u8)
@@ -38,13 +109,16 @@ pub fn getStaticData(tile: ECS.Entity.Unmanaged) ?@TypeOf(staticData.items[0])
 pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
   (error{TileNotFound} || graphics.Error)!void
 {
-  const tileType = mainspace.ecs.getComponent(
-    tiles.get(pos) orelse return error.TileNotFound, "tileType", Type
-  ).?;
+  const tile = tiles.get(pos) orelse return error.TileNotFound;
 
-  switch (tileType)
-  {
-    .YellowWallpaper => {
+  const tileType = mainspace.ecs.getComponent(
+    tile, "tileType", Type
+  ).?;
+  const data = getStaticData(tile).?;
+
+  const ch: graphics.Char = if (!data.wallConnect) data.ch
+    else
+    blk:{
       const Neighbors = packed struct
       {
         up: bool,
@@ -80,7 +154,7 @@ pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
           else false,
       };
 
-      const ch: graphics.Char = switch (@as(u4, @bitCast(neighbors)))
+      break:blk switch (@as(u4, @bitCast(neighbors)))
       {
         @as(u4, @bitCast(Neighbors{
           .up = false, .right = false, .down = false, .left = false
@@ -131,13 +205,8 @@ pub fn render(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
           .up = true, .right = true, .down = true, .left = true
         })) => acs('n'),//nc.ACS_PLUS,
       };
+  };
 
-      try graphics.drawCh(pos - camPos, ch);
-      //_ = nc.mvaddch(pos[1]-camPos[1], pos[0]-camPos[0], ch);
-    },
-    .CyanideCarpet => {
-      try graphics.drawCh(pos - camPos, '.');
-      //_ = nc.mvaddch(pos[1]-camPos[1], pos[0]-camPos[0], '.');
-    },
-  }
+  //try graphics.setDrawColor(data.color, @splat(0.0));
+  try graphics.drawCh(pos - camPos, ch);
 }

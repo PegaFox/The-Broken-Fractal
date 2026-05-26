@@ -44,13 +44,13 @@
             .url = "git+https://github.com/allyourcodebase/SDL_image.git#288bc44cba10e542a872912f62e22160e91bb6dc",
             .hash = "SDL_image-3.4.2--aJoHbkWAAA9Byk-voi8UuRvTFENE7UKtQUXs4fc_VSc",
         },
-        //.lua = .{
-        //    .url = "git+https://github.com/allyourcodebase/lua.git#5a5a4135cbb8991f27c01bce341fd93134dbecd1",
-        //    .hash = "lua-5.4.7-zqrcyuUjAAA4YBuZ47elrKT7DSeNx9c3K9XE2YlCoiSz",
-        //},
         .lua = .{
             .url = "git+https://github.com/PegaFox/allyourcodebase-lua.git#9d12e6d06f80d90d5cb478b79fe086b9b1df042f",
             .hash = "lua-5.4.7-zqrcysUiAACQA04jcT5JHRCbEGsI24cGqRbM_LPwDXWn",
+        },
+        .zlua = .{
+            .url = "git+https://github.com/natecraddock/ziglua#74cb4f86cd8008b1ee7a7c8fa2a29da58de7f1fa",
+            .hash = "zlua-0.1.0-hGRpC1B-BQAKAx0m9dmZZuwKZvaylK2CMTkvlEfPsFst",
         },
     },
     .paths = .{

@@ -154,12 +154,16 @@ const vtable = Level.VTable{
     if (@mod(pos[0], 6) < 2 and @mod(pos[1], 6) < 2)
     {
       result = mainspace.ecs.addEntity(.{
-        .tileType = tile.Type.YellowWallpaper,
+        .tileType = tile.nameTypes.get(
+          .{.mod = "base", .name = "yellowWallpaper"}
+        ).?,
       }).id;
     } else
     {
       result = mainspace.ecs.addEntity(.{
-        .tileType = tile.Type.CyanideCarpet,
+        .tileType = tile.nameTypes.get(
+          .{.mod = "base", .name = "cyanideCarpet"}
+        ).?,
       }).id;
     }
 

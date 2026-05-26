@@ -1,5 +1,5 @@
 const std = @import("std");
-
+const builtin = @import("builtin");
 // Although this function looks imperative, note that its job is to
 // declaratively construct a build graph that will be executed by an external
 // runner.
@@ -22,12 +22,17 @@ pub fn build(b: *std.Build) void
     .optimize = optimize
   });
 
-  const lua = b.dependency("lua", .{
+  const lua_dep = b.dependency("zlua", .{
     .target = target,
-    .release = optimize != .Debug,
+    .optimize = optimize,
   });
-  const luaLib =
-    lua.artifact(if (target.result.os.tag == .windows) "lua54" else "lua");
+
+  //const lua = b.dependency("lua", .{
+  //  .target = target,
+  //  .release = optimize != .Debug,
+  //});
+  //const luaLib =
+  //  lua.artifact(if (target.result.os.tag == .windows) "lua54" else "lua");
 
   // We will also create a module for our other entry point, 'main.zig'.
   const exe_mod = b.createModule(.{
@@ -45,10 +50,11 @@ pub fn build(b: *std.Build) void
   });
 
   exe_mod.linkSystemLibrary("ncurses", .{});
-  exe_mod.linkLibrary(luaLib);
+  exe_mod.addImport("zlua", lua_dep.module("zlua"));
+  //exe_mod.linkLibrary(luaLib);
   exe_mod.linkLibrary(sdl.artifact("SDL3"));
   exe_mod.linkLibrary(sdlImage.artifact("SDL3_image"));
-  exe_mod.addIncludePath(lua.path("src"));
+  //exe_mod.addIncludePath(lua.path("src"));
   exe_mod.addIncludePath(sdl.path("include"));
   exe_mod.addIncludePath(sdlImage.path("include"));
 
@@ -57,7 +63,15 @@ pub fn build(b: *std.Build) void
   const exe = b.addExecutable(.{
     .name = "fractal",
     .root_module = exe_mod,
+    .use_llvm = true,
   });
+  if (
+    builtin.zig_version.major != 0 or
+    builtin.zig_version.minor != 16 or
+    builtin.zig_version.patch != 0)
+  {
+    @compileLog("Zig version is not 0.16.0, remove use_llvm exe option");
+  }
 
   // This declares intent for the executable to be installed into the
   // standard location when the user invokes the "install" step (the default

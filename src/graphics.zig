@@ -61,7 +61,7 @@ pub const NCursesData = struct {
 
       const colorInt: @Vector(3, c_short) =
         @trunc(color * @as(Color, @splat(1000.0)));
-      log.debug("Init color {}) {} : {}\n", .{newIndex, color, colorInt});
+      log.debug("Init color {}) {}: {}\n", .{newIndex, color, colorInt});
       if (nc.init_color(
         newIndex, colorInt[0], colorInt[1], colorInt[2]) == nc.ERR
       ) return Error.RenderFail;
