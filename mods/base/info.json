@@ -1,0 +1,33 @@
+{
+  "name": "base",
+  "displayName": "Base",
+  "version": {"major": 0, "minor": 0, "patch": 1},
+  "gameVersion": {
+    "min": {"major": 0, "minor": 1, "patch": 0},
+    "max": {"major": 0, "minor": 1, "patch": 0}
+  },
+  "dependencies": {
+    "foo": {
+      "version": {
+        "min": {"major": 0, "minor": 0, "patch": 1},
+        "max": {"major": 1, "minor": 0, "patch": 0}
+      }
+    }
+  },
+  "optional": {
+    "foo": {
+      "version": {
+        "min": {"major": 0, "minor": 0, "patch": 1},
+        "max": {"major": 1, "minor": 0, "patch": 0}
+      }
+    }
+  },
+  "conflicts": {
+    "foo": {
+      "version": {
+        "min": {"major": 0, "minor": 0, "patch": 1},
+        "max": {"major": 1, "minor": 0, "patch": 0}
+      }
+    }
+  }
+}
