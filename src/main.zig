@@ -115,6 +115,7 @@ pub fn main(init: std.process.Init) !void
     .tileMemory = TileMemory{.tiles = .empty},
   }));
   try Turn.push(init.gpa, &ecs, Level.objects.getLast());
+  defer Turn.queue.deinit(init.gpa);
 
   defer ecs.getPtr(
     Level.objects.items[0].id, "tileMemory", TileMemory

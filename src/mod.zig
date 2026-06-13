@@ -109,8 +109,12 @@ pub fn unloadAll(allocator: Allocator, retainMemory: bool) void
 
   if (!retainMemory)
   {
+    input.bindings.clearAndFree(allocator);
+    input.inputs.clearAndFree(allocator);
     tile.staticData.clearAndFree(allocator);
     tile.nameTypes.clearAndFree(allocator);
+    Object.staticData.clearAndFree(allocator);
+    Object.nameTypes.clearAndFree(allocator);
     Level.levels.clearAndFree(allocator);
     Level.nameIDs.clearAndFree(allocator);
     mods.clearAndFree(allocator);
@@ -233,6 +237,24 @@ pub fn unload(mod: *Self, allocator: Allocator) void
 {
   const modIndex = mod - mods.items.ptr;
 
+  // TODO: Adapt this for removing mod inputs
+  //const afterLastInputType = if (modIndex < mods.items.len-1)
+  //  mods.items[modIndex+1].inputStartType
+  //else
+  //  input.inputs.count();
+
+  //for (input.inputs.items[
+  //  mod.tileStartType..afterLastInputType
+  //]) |*modTile|
+  //{
+  //  std.debug.assert(
+  //    tile.nameTypes.remove(.{.mod = mod.name, .name = modTile.name})
+  //  );
+
+  //  allocator.free(modTile.name);
+  //  modTile.* = undefined;
+  //}
+
   const afterLastTileType = if (modIndex < mods.items.len-1)
     mods.items[modIndex+1].tileStartType
   else
@@ -248,6 +270,23 @@ pub fn unload(mod: *Self, allocator: Allocator) void
 
     allocator.free(modTile.name);
     modTile.* = undefined;
+  }
+
+  const afterLastObjectType = if (modIndex < mods.items.len-1)
+    mods.items[modIndex+1].objectStartType
+  else
+    Object.staticData.items.len;
+
+  for (Object.staticData.items[
+    mod.objectStartType..afterLastObjectType
+  ]) |*modObject|
+  {
+    std.debug.assert(
+      Object.nameTypes.remove(.{.mod = mod.name, .name = modObject.name})
+    );
+
+    allocator.free(modObject.name);
+    modObject.* = undefined;
   }
 
   const afterLastLevelID = if (modIndex < mods.items.len-1)
@@ -281,6 +320,7 @@ fn loadInit(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
     .name = try allocator.dupe(u8, info.value.name),
     .version = info.value.version,
     .tileStartType = @intCast(tile.staticData.items.len),
+    .objectStartType = @intCast(Object.staticData.items.len),
     .levelStartID = @intCast(Level.levels.items.len),
   });
   info.deinit();
@@ -599,8 +639,8 @@ fn loadObjects(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
       });
       try Object.nameTypes.putNoClobber(
         allocator,
-        .{.mod = mods.getLast().name, .name = tile.staticData.getLast().name},
-        @intCast(tile.staticData.items.len-1)
+        .{.mod = mods.getLast().name, .name = Object.staticData.getLast().name},
+        @intCast(Object.staticData.items.len-1)
       );
 
       const data = Object.staticData.getLast();
