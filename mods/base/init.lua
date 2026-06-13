@@ -1,9 +1,12 @@
 print("Hello from The Broken Fractal!")
 
+--print(fractal)
 --for k,v in pairs(_G) do
---  print(k..",")
+--  if k ~= "_G" then
+--    print(k, ": ", v, ",")
+--  end
 --end
 --
 --for k,v in ipairs(_G) do
---  print(k..",")
+--  print(k, ": ", v, ",")
 --end

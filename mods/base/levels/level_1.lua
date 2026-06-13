@@ -17,15 +17,16 @@ function exit(self)
 end
 
 function update(self)
-  self.camera:centerOn(self.objects:get(0))
+  local pos = self.camera:centerOn(self.objects:get(0))
+  --print(pos[1], ", ", pos[2])
 end
 
 function generateTile(self, pos)
   local result = nil
-  if pos[1]%2 == 1 and pos[2]%2 == 1 then
-    result = {"concreteFloor"}
-  elseif pos[1]%2 == 0 and pos[2]%2 == 0 then
+  if pos[1]%20 < 10 and pos[2]%20 < 10 then
     result = {"concreteWall"}
+  else
+    result = {"concreteFloor"}
   end
 
   --if pos[1]%2 == 0 and pos[2]%2 == 0 and

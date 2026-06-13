@@ -9,6 +9,7 @@ const graphics = @import("../graphics.zig");
 
 const Mod = @import("../mod.zig");
 const luaUtil = @import("../lua.zig");
+const Turn = @import("../turn.zig");
 const tile = @import("../tile.zig");
 const Object = @import("../object.zig");
 const ECS = @import("ecs");
@@ -81,7 +82,8 @@ pub const interface = Scene{
       {
         switch (inputEvent.key.key)
         {
-          sdl.SDLK_H, sdl.SDLK_LEFT => try Player.move(level, .{-1, 0}),
+          sdl.SDLK_H, sdl.SDLK_LEFT =>
+            try Turn.push(gpa, &mainspace.ecs, objects.items[0]),
           sdl.SDLK_Y, sdl.SDLK_HOME => try Player.move(level, .{-1, -1}),
           sdl.SDLK_J, sdl.SDLK_DOWN => try Player.move(level, .{0, 1}),
           sdl.SDLK_B, sdl.SDLK_END => try Player.move(level, .{-1, 1}),
@@ -95,6 +97,20 @@ pub const interface = Scene{
           sdl.SDLK_T =>
             currentLevel =
               @mod(currentLevel+1, @as(ID, @truncate(levels.items.len))),
+          //sdl.SDLK_H, sdl.SDLK_LEFT => try Player.move(level, .{-1, 0}),
+          //sdl.SDLK_Y, sdl.SDLK_HOME => try Player.move(level, .{-1, -1}),
+          //sdl.SDLK_J, sdl.SDLK_DOWN => try Player.move(level, .{0, 1}),
+          //sdl.SDLK_B, sdl.SDLK_END => try Player.move(level, .{-1, 1}),
+          //sdl.SDLK_K, sdl.SDLK_UP => try Player.move(level, .{0, -1}),
+          //sdl.SDLK_U, sdl.SDLK_PAGEUP => try Player.move(level, .{1, -1}),
+          //sdl.SDLK_L, sdl.SDLK_RIGHT => try Player.move(level, .{1, 0}),
+          //sdl.SDLK_N, sdl.SDLK_PAGEDOWN => try Player.move(level, .{1, 1}),
+          //sdl.SDLK_W, =>
+          //  if (inputEvent.key.mod & sdl.SDL_KMOD_SHIFT != 0)
+          //    try Player.write(level),
+          //sdl.SDLK_T =>
+          //  currentLevel =
+          //    @mod(currentLevel+1, @as(ID, @truncate(levels.items.len))),
           else => {},
         }
       }
@@ -102,6 +118,7 @@ pub const interface = Scene{
 
     .update = struct {fn update(self: *const Scene) !void
     {_ = self;
+      log.debug("{} time step(s) later...\n", .{Turn.stepTime(&mainspace.ecs)});
 
       var luaSuccess = false;
       if (Mod.luaEnv) |lua|
@@ -109,10 +126,12 @@ pub const interface = Scene{
         const top = lua.getTop();
         defer lua.setTop(top);
 
-        if (lua.getGlobal("mods") catch break:luaFail != .table) break:luaFail;
-        if (!lua.getSubtable(-1, "base")) break:luaFail;
+        if (lua.getGlobal("fractal") catch break:luaFail != .table)
+          break:luaFail;
+        if (!lua.getSubtable(-1, "mods")) break:luaFail;
+        _ = lua.pushString(Mod.findLevelMod(currentLevel).name);
+        if (lua.getTable(-2) != .table) break:luaFail;
         if (!lua.getSubtable(-1, "levels")) break:luaFail;
-
         _ = lua.pushString(levels.items[currentLevel].name);
         if (lua.getTable(-2) != .table) break:luaFail;
         if (lua.getField(-1, "update") != .function) break:luaFail;
@@ -139,11 +158,12 @@ pub const interface = Scene{
       // Default update functionality
       if (!luaSuccess)
       {
-        _ = luaUtil.luaCameraCenterOnInner(
-          .{.id = @ptrFromInt(currentLevel)},
+        _ = luaUtil.luaCamera.centerOnInner(
+          .{.parent = .{.handle = @ptrFromInt(currentLevel)}},
           .{.id = objects.items[0].id}
         ) catch unreachable;
       }
+
     }}.update,
 
     .draw = struct {fn draw(self: *const Scene) !void
@@ -196,7 +216,7 @@ pub const interface = Scene{
           {
             try graphics.drawCh(pos - level.camPos, data.ch);
           }
-        }
+        } else |_| unreachable;
       }
     }}.draw,
 
@@ -225,8 +245,11 @@ pub fn generateTile(self: *Self, pos: Coord)
     const top = lua.getTop();
     defer lua.setTop(top);
 
-    if (lua.getGlobal("mods") catch break:luaFail != .table) break:luaFail;
-    if (!lua.getSubtable(-1, "base")) break:luaFail;
+    if (lua.getGlobal("fractal") catch break:luaFail != .table)
+      break:luaFail;
+    if (!lua.getSubtable(-1, "mods")) break:luaFail;
+    _ = lua.pushString(Mod.findLevelMod(currentLevel).name);
+    if (lua.getTable(-2) != .table) break:luaFail;
     if (!lua.getSubtable(-1, "levels")) break:luaFail;
     _ = lua.pushString(levels.items[currentLevel].name);
     if (lua.getTable(-2) != .table) break:luaFail;

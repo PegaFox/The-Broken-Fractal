@@ -104,6 +104,9 @@
 
 - Add perspective view (done)
 - Three map buffers (currently visible, previously visited, and true world) (done)
+- Run game fully until stopping at input request (done)
+- Add mod integration for objects (done)
+- Add time system (done)
 - Add small chance of levels 1 or 2
 - Remove currentLevel, instead use the level coordinate of player
 - Move spawn level logic to base mod (set player position to level on mod init)
@@ -119,3 +122,4 @@
 - Add lighting system
 - Add dynamic color approximation
 - Add item durability/wear-and-tear
+

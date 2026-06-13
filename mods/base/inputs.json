@@ -1,0 +1,11 @@
+[
+  {"name": "Up",        "defaultBinds": [{"key": "K"}, {"key": "Keypad 8"}, {"key": "Up"}]},
+  {"name": "UpRight",   "defaultBinds": [{"key": "U"}, {"key": "Keypad 9"}]},
+  {"name": "Right",     "defaultBinds": [{"key": "L"}, {"key": "Keypad 6"}, {"key": "Right"}]},
+  {"name": "DownRight", "defaultBinds": [{"key": "N"}, {"key": "Keypad 3"}]},
+  {"name": "Down",      "defaultBinds": [{"key": "J"}, {"key": "Keypad 2"}, {"key": "Down"}]},
+  {"name": "DownLeft",  "defaultBinds": [{"key": "B"}, {"key": "Keypad 1"}]},
+  {"name": "Left",      "defaultBinds": [{"key": "H"}, {"key": "Keypad 4"}, {"key": "Left"}]},
+  {"name": "UpLeft",    "defaultBinds": [{"key": "Y"}, {"key": "Keypad 7"}]},
+  {"name": "Wait",      "defaultBinds": [{"key": "."}, {"key": "Keypad 5"}]}
+]

@@ -7,9 +7,11 @@ const File = Io.File;
 const log = std.log;
 
 const ECS = @import("ecs");
+const input = @import("input.zig");
 const graphics = @import("graphics.zig");
 const Mod = @import("mod.zig");
 const Sight = @import("sight.zig");
+const Object = @import("object.zig");
 const Level = @import("scenes/level.zig");
 const tile = @import("tile.zig");
 const mainspace = @import("main.zig");
@@ -55,9 +57,21 @@ pub fn init(allocator: Allocator) Allocator.Error!*lua.Lua
     state.pop(1);
   } else |_| {}
 
+  state.createTable(0, 1);
+  // 32 is an approximation
+  state.createTable(32, 0);
+  state.setField(-2, "actions");
+  state.setField(lua.registry_index, "fractal");
+
+  state.createTable(0, 1);
   // 8 is an approximation and it may be smart to check enabled mod count and use that instead
   state.createTable(0, 8);
-  state.setGlobal("mods");
+  state.setField(-2, "mods");
+
+  state.pushFunction(luaInput);
+  state.setField(-2, "input");
+
+  state.setGlobal("fractal");
 
   return state;
 }
@@ -118,7 +132,7 @@ pub fn runFunction(self: *lua.Lua)
 {
   self.protectedCall(.{}) catch |e|
   {
-    // TYpes are commented out if I can't think of a good way to log them
+    // Types are commented out if I can't think of a good way to log them
     switch (self.typeOf(-1))
     {
       .nil => log.err(
@@ -173,6 +187,7 @@ pub fn globalCount(self: *lua.Lua) usize
   return count;
 }
 
+var luaPrintEndsInNewline = true;
 fn luaPrint(self: *lua.Lua) i32
 {
   const argNum = @max(0, self.getTop());
@@ -181,297 +196,434 @@ fn luaPrint(self: *lua.Lua) i32
 
   for (1..argNum+1) |arg|
   {
-    const string = self.toStringEx(@intCast(arg));
-    log.info("{s}", .{string});
-    self.pop(1);
+    switch (self.typeOf(@intCast(arg)))
+    {
+      .table => {
+        const revertNewline = luaPrintEndsInNewline;
+        luaPrintEndsInNewline = false;
+        defer if (revertNewline) {luaPrintEndsInNewline = true;};
+
+        std.debug.assert(
+          self.getGlobal("print") catch unreachable == .function);
+        const printAddress = self.getTop();
+
+        log.info("{{ ", .{});
+        self.pushNil();
+
+        var first = true;
+        while (self.next(@intCast(arg)))
+        {
+          // We don't want to add a comma the first time
+          if (!first)
+          {
+            log.info(", ", .{});
+          }
+          first = false;
+
+          self.pushValue(printAddress);
+          self.pushValue(-3);
+          self.protectedCall(.{.args = 1}) catch self.raiseError();
+          log.info(" = ", .{});
+          self.pushValue(printAddress);
+          self.rotate(-2, 1);
+          self.protectedCall(.{.args = 1}) catch self.raiseError();
+        }
+        log.info(" }}", .{});
+      },
+      else => {
+        const string = self.toStringEx(@intCast(arg));
+        log.info("{s}", .{string});
+        self.pop(1);
+      }
+    }
   }
 
-  log.info("\n", .{});
+  if (luaPrintEndsInNewline)
+  {
+    log.info("\n", .{});
+  }
   
   return 0;
 }
 
-/// self:tileGet(pos) => {"mod", "name"}
-pub fn luaTileGet(state: ?*lua.LuaState) callconv(.c) c_int
+var currentInput: []const u8 = "";
+/// input() => "current input"
+/// Polls for and reads the current input, returning it but not popping it
+/// input(input) => bool
+/// Returns if the current input equals the arg
+pub const luaInput = lua.wrap(luaInputInner);
+
+fn luaInputInner(state: *lua.Lua) !i32
 {
-  const self: *lua.Lua = @ptrCast(state orelse unreachable);
+  if (currentInput.len == 0)
+  {
+    // The io argument isn't used right now and it would be annoying to find some way to pass the io implementation to the function manually, so I'm leaving it blank for now
+    currentInput = try input.getInput(undefined);
+  }
 
-  const args = getLuaLevelPosArgs(self);
+  if (state.getTop() > 0)
+  {
+    const @"test" = try state.toString(1);
+    const testIsInput = std.mem.eql(u8, currentInput, @"test");
 
-  const tileEntity =
-    Level.levels.items[args.levelID].getTile(args.pos) catch return 0;
-  const tileType =
-    mainspace.ecs.get(tileEntity, "tileType", tile.Type) orelse unreachable;
+    state.pushBoolean(testIsInput);
 
-  self.createTable(2, 0);
-
-  _ = self.pushString(Mod.findTileMod(tileType).name);
-  self.setIndex(-2, 1);
-
-  _ = self.pushString(tile.staticData.items[tileType].name);
-  self.setIndex(-2, 2);
-
-  return 1;
-}
-
-/// self:tileGetInfo(pos) => {
-///   name = "cyanideCarpet",
-///   walkable = true,
-///   color = {"r": 1.0, "g": 1.0, "b": 1.0},
-///   wallConnect = false,
-///   ch = "."
-/// } or nil
-/// This is slightly faster than calling luaTileGet then accessing it using the global table
-pub fn luaTileGetInfo(state: ?*lua.LuaState) callconv(.c) c_int
-{
-  const self: *lua.Lua = @ptrCast(state orelse unreachable);
-
-  const args = getLuaLevelPosArgs(self);
-
-  const tileEntity =
-    Level.levels.items[args.levelID].getTile(args.pos) catch return 0;
-  const data = tile.getStaticData(tileEntity) orelse return 0;
-
-  self.pushAny(
-    struct
+    if (testIsInput)
     {
-      name: []const u8,
-      walkable: bool,
-      color: struct {r: f32, g: f32, b: f32},
-      wallConnect: bool,
-      ch: []const u8
-    }{
-      .name = data.name,
-      .walkable = data.walkable,
-      .color = .{
-        .r = data.color[0],
-        .g = data.color[1],
-        .b = data.color[2]
-      },
-      .wallConnect = data.wallConnect,
-      .ch = (&data.ch)[0..1],
+      currentInput = "";
     }
-  ) catch return 0;
-
-  return 1;
-}
-
-/// self.tile:iterate() => iterator
-/// Used with for loops to iterate over a level's tiles
-pub const luaTileIterate = lua.wrap(luaTileIterateInner);
-
-fn luaTileIterateInner(state: *lua.Lua) i32
-{
-  // This should be table, but it fails to compile unless the comparison is for .light_userdata
-  state.argCheck(state.getField(1, "parent") == .table, 1, "Not a namespace");
-  state.argCheck(
-    state.getField(-1, "handle") == .light_userdata,
-    1,
-    "Not a level"
-  );
-
-  state.pushValue(1);
-  // Store current index as closure
-  state.pushInteger(0);
-  state.pushClosure(lua.wrap(
-    struct {fn nextTile(self: *lua.Lua) c_int
-      //error{NotANamespace, NotALevel}!
-      //?struct {Level.Coord, ECS.Entity.Unmanaged}
-    {
-      const levelId: Level.ID =
-        if (self.toUserdata(anyopaque, -1)) |id| @intCast(@intFromPtr(id))
-        else |_| 0;
-
-      const index = self.toInteger(lua.Lua.upvalueIndex(2)) catch unreachable;
-      self.pushInteger(index + 1);
-      self.replace(lua.Lua.upvalueIndex(2));
-
-      const tiles = &Level.levels.items[levelId].tiles;
-
-      if (index < tiles.count())
-      {
-        // The catch unreachable here may be incorrect if the key type is changed, so we assert the type here
-        std.debug.assert(@TypeOf(tiles.keys()[@intCast(index)]) == Level.Coord);
-        self.pushAny(tiles.keys()[@intCast(index)]) catch unreachable;
-        self.pushInteger(tiles.values()[@intCast(index)]);
-        return 2;
-      } else 
-      {
-        return 0;
-      }
-    }}.nextTile), 2);
-
-  return 1;
-}
-
-/// self:tileRemove(pos) => bool
-/// Removes tile at pos
-/// Returns whether there was a tile there
-pub const luaTileRemove = toApiFunction(
-  "tileRemove",
-  luaTileRemoveInner,
-  .{}
-) catch unreachable;
-
-fn luaTileRemoveInner(level: LevelHandle, pos: Level.Coord) bool
-{
-  return Level.levels.items[@intFromPtr(level.id)].tiles.swapRemove(pos);
-}
-
-/// self:tileCount() => int
-/// Returns size of level's tilemap
-pub const luaTileCount = toApiFunction(
-  "tileCount",
-  luaTileCountInner,
-  .{}
-) catch unreachable;
-
-fn luaTileCountInner(level: LevelHandle) u32
-{
-  return @intCast(Level.levels.items[@intFromPtr(level.id)].tiles.count());
-}
-
-/// self.objects:get(index) or
-/// self.objects:get(pos) or
-/// self.objects.get(index) => {
-///   id: ECS.Entity.Unmanaged,
-///   if hasComponent(sight) sight
-/// }
-pub fn luaObjectGet(state: ?*lua.LuaState) callconv(.c) c_int
-{
-  const self: *lua.Lua = @ptrCast(state orelse unreachable);
-
-  if (self.getTop() == 1)
+  } else
   {
-    self.argExpected(self.isInteger(1), 1, "index");
-    const index = self.toInteger(1) catch unreachable;
-    self.argCheck(
-      index >= 0 and index < Level.objects.items.len,
-      1,
-      "Index out of range"
-    );
+    _ = state.pushString(currentInput);
+  }
 
-    luaGenerateObject(
-      self,
-      .{.parent = &mainspace.ecs, .id = Level.objects.items[@intCast(index)].id}
-    );
+  return 1;
+}
 
+pub const luaTile = struct
+{
+  /// self.tiles:get(pos) => {"mod", "name"}
+  pub fn get(state: ?*lua.LuaState) callconv(.c) c_int
+  {
+    const self: *lua.Lua = @ptrCast(state orelse unreachable);
+  
+    const args = getLuaLevelPosArgs(self);
+  
+    const tileEntity =
+      Level.levels.items[args.levelID].getTile(args.pos) catch return 0;
+    const tileType =
+      mainspace.ecs.get(tileEntity, "tileType", tile.Type) orelse unreachable;
+  
+    self.createTable(2, 0);
+  
+    _ = self.pushString(Mod.findTileMod(tileType).name);
+    self.setIndex(-2, 1);
+  
+    _ = self.pushString(tile.staticData.items[tileType].name);
+    self.setIndex(-2, 2);
+  
     return 1;
-  } else if (self.getTop() > 1)
+  }
+  
+  /// self.tiles:getInfo(pos) => {
+  ///   name = "cyanideCarpet",
+  ///   walkable = true,
+  ///   color = {"r": 1.0, "g": 1.0, "b": 1.0},
+  ///   wallConnect = false,
+  ///   ch = "."
+  /// } or nil
+  /// This is slightly faster than calling luaTileGet then accessing it using the global table
+  pub fn getInfo(state: ?*lua.LuaState) callconv(.c) c_int
   {
-    if (self.isInteger(2))
+    const self: *lua.Lua = @ptrCast(state orelse unreachable);
+  
+    const args = getLuaLevelPosArgs(self);
+  
+    const tileEntity =
+      Level.levels.items[args.levelID].getTile(args.pos) catch return 0;
+    const data = tile.getStaticData(tileEntity) orelse return 0;
+  
+    self.pushAny(
+      struct
+      {
+        name: []const u8,
+        walkable: bool,
+        color: struct {r: f32, g: f32, b: f32},
+        wallConnect: bool,
+        ch: []const u8
+      }{
+        .name = data.name,
+        .walkable = data.walkable,
+        .color = .{
+          .r = data.color[0],
+          .g = data.color[1],
+          .b = data.color[2]
+        },
+        .wallConnect = data.wallConnect,
+        .ch = (&data.ch)[0..1],
+      }
+    ) catch return 0;
+  
+    return 1;
+  }
+  
+  /// self.tiles:iterate() => iterator
+  /// Used with for loops to iterate over a level's tiles
+  pub const iterate = lua.wrap(iterateInner);
+  
+  fn iterateInner(state: *lua.Lua) i32
+  {
+    state.argCheck(state.getField(1, "parent") == .table, 1, "Not a namespace");
+    state.argCheck(
+      state.getField(-1, "handle") == .light_userdata,
+      1,
+      "Not a level"
+    );
+  
+    state.pushValue(1);
+    // Store current index as closure
+    state.pushInteger(0);
+    state.pushClosure(lua.wrap(
+      struct {fn nextTile(self: *lua.Lua) c_int
+        //error{NotANamespace, NotALevel}!
+        //?struct {Level.Coord, ECS.Entity.Unmanaged}
+      {
+        const levelId: Level.ID =
+          if (self.toUserdata(anyopaque, -1)) |id| @intCast(@intFromPtr(id))
+          else |_| 0;
+  
+        const index = self.toInteger(lua.Lua.upvalueIndex(2)) catch unreachable;
+        self.pushInteger(index + 1);
+        self.replace(lua.Lua.upvalueIndex(2));
+  
+        const tiles = &Level.levels.items[levelId].tiles;
+  
+        if (index < tiles.count())
+        {
+          // The catch unreachable here may be incorrect if the key type is changed, so we assert the type here
+          std.debug.assert(
+            @TypeOf(tiles.keys()[@intCast(index)]) == Level.Coord
+          );
+
+          self.pushAny(tiles.keys()[@intCast(index)]) catch unreachable;
+          self.pushInteger(tiles.values()[@intCast(index)]);
+          return 2;
+        } else 
+        {
+          return 0;
+        }
+      }}.nextTile), 2);
+  
+    return 1;
+  }
+  
+  /// self.tiles:remove(pos) => bool
+  /// Removes tile at pos
+  /// Returns whether there was a tile there
+  pub const remove = toApiFunction(
+    "tiles:remove",
+    removeInner,
+    .{}
+  ) catch unreachable;
+  
+  fn removeInner(level: LevelHandle, pos: Level.Coord) bool
+  {
+    return Level.levels.items[@intFromPtr(level.handle)].tiles.swapRemove(pos);
+  }
+  
+  /// self.tiles:count() => int
+  /// Returns size of level's tilemap
+  pub const count = toApiFunction(
+    "tiles:count",
+    countInner,
+    .{}
+  ) catch unreachable;
+  
+  fn countInner(level: LevelHandle) u32
+  {
+    return
+      @intCast(Level.levels.items[@intFromPtr(level.handle)].tiles.count());
+  }
+};
+
+pub const luaObject = struct
+{
+  /// self.objects:get(index) or
+  /// self.objects:get(pos) or
+  /// self.objects.get(index) => {
+  ///   id: ECS.Entity.Unmanaged,
+  ///   if hasComponent(sight) sight
+  /// }
+  pub fn get(state: ?*lua.LuaState) callconv(.c) c_int
+  {
+    const self: *lua.Lua = @ptrCast(state orelse unreachable);
+  
+    if (self.getTop() == 1)
     {
-      const index = self.toInteger(2) catch unreachable;
+      self.argExpected(self.isInteger(1), 1, "index");
+      const index = self.toInteger(1) catch unreachable;
       self.argCheck(
         index >= 0 and index < Level.objects.items.len,
         1,
         "Index out of range"
       );
-
-      luaGenerateObject(
+  
+      generate(
         self,
-        .{
-          .parent = &mainspace.ecs,
-          .id = Level.objects.items[@intCast(index)].id
-        }
+        &mainspace.ecs,
+        Level.objects.items[@intCast(index)]
       );
-
+  
       return 1;
-    } else
+    } else if (self.getTop() > 1)
     {
-      // TODO: This
-    }
-  }
-
-  return 0;
-}
-
-/// Pushes an object table with the object's components onto the lua stack
-/// Does not verify stack space
-pub fn luaGenerateObject(state: *lua.Lua, object: ECS.Entity.Managed) void
-{
-  state.createTable(0, 2);
-  state.pushInteger(object.id);
-  state.setField(-2, "id");
-
-  if (object.get("sight", Sight)) |_|
-  {
-    state.createTable(0, 1);
-
-    state.pushValue(-2);
-    state.pushClosure(toApiFunction(
-      "object.sight.inView",
-      struct {fn inView(self: *lua.Lua, pos: Level.Coord) !bool
+      if (self.isInteger(2))
       {
-        std.debug.assert(
-          self.getField(lua.Lua.upvalueIndex(1), "id") == .number
+        const index = self.toInteger(2) catch unreachable;
+        self.argCheck(
+          index >= 0 and index < Level.objects.items.len,
+          1,
+          "Index out of range"
         );
-        const objectId: ECS.Entity.Managed = .{
-          .parent = &mainspace.ecs,
-          .id = @intCast(try self.toInteger(-1)),
-        };
-
-        const sight = objectId.get("sight", Sight) orelse
-          return error.InvalidComponent;
-
-        return sight.inView(pos);
-      }}.inView, .{}
-    ) catch unreachable, 1);
-    
-    state.setField(-2, "inView");
-    state.setField(-2, "sight");
+  
+        generate(
+          self,
+          &mainspace.ecs,
+          Level.objects.items[@intCast(index)]
+        );
+  
+        return 1;
+      } else
+      {
+        // TODO: This
+      }
+    }
+  
+    return 0;
   }
-}
+
+  /// Pushes an object table with the object's components onto the lua stack
+  /// Does not verify stack space
+  pub fn generate(state: *lua.Lua, ecs: *ECS, object: Object) void
+  {
+    state.createTable(0, 5);
+
+    const objectTableIdx = state.getTop();
+
+    state.pushInteger(object.id);
+    state.setField(objectTableIdx, "id");
+  
+    if (ecs.get(object.id, "objectType", Object.Type)) |@"type"|
+    {
+      state.pushInteger(@"type");
+      state.setField(objectTableIdx, "type");
+
+      std.debug.assert(state.getGlobal("fractal") catch unreachable == .table);
+      std.debug.assert(state.getField(-1, "mods") == .table);
+      _ = state.pushString(Mod.findObjectMod(@"type").name);
+      std.debug.assert(state.getTable(-2) == .table);
+
+      state.setField(objectTableIdx, "mod");
+    }
+
+    if (ecs.get(object.id, "pos", Level.Coord)) |_|
+    {
+      state.createTable(0, 3);
+      state.pushValue(objectTableIdx);
+      state.setField(-2, "parent");
+      state.pushFunction(toApiFunction(
+        "object.pos:get",
+        struct {fn get(
+          self: struct {parent: struct {id: ECS.Entity.Unmanaged}}) Level.Coord
+          {
+            return mainspace.ecs.get(self.parent.id, "pos", Level.Coord).?;
+          }}.get,
+        .{}
+      ) catch unreachable);
+      state.setField(-2, "get");
+      state.pushFunction(toApiFunction(
+        "object.pos:set",
+        struct {fn set(
+          self: struct {parent: struct {id: ECS.Entity.Unmanaged}},
+          newPos: Level.Coord) void
+          {
+            mainspace.ecs.getPtr(self.parent.id, "pos", Level.Coord).?.* =
+              newPos;
+          }}.set,
+        .{}
+      ) catch unreachable);
+      state.setField(-2, "set");
+      state.setField(objectTableIdx, "pos");
+    }
+
+    if (ecs.get(object.id, "sight", Sight)) |_|
+    {
+      state.createTable(0, 1);
+  
+      state.pushValue(objectTableIdx);
+      state.pushClosure(toApiFunction(
+        "object.sight.inView",
+        struct {fn inView(self: *lua.Lua, pos: Level.Coord) !bool
+        {
+          std.debug.assert(
+            self.getField(lua.Lua.upvalueIndex(1), "id") == .number
+          );
+          const objectId: ECS.Entity.Managed = .{
+            .parent = &mainspace.ecs,
+            .id = @intCast(try self.toInteger(-1)),
+          };
+  
+          const sight = objectId.get("sight", Sight) orelse
+            return error.InvalidComponent;
+  
+          return sight.inView(pos);
+        }}.inView, .{}
+      ) catch unreachable, 1);
+      
+      state.setField(-2, "inView");
+      state.setField(objectTableIdx, "sight");
+    }
+
+    state.setTop(objectTableIdx);
+  }
+};
 
 /// id is actually Level.ID, but it's stored as userdata in lua
-const LevelHandle = struct {id: ?*anyopaque};
+const LevelHandle = struct {handle: ?*anyopaque};
 
-/// self.camera:centerOn(entity) => pos
-/// Returns true camera position after centering
-pub const luaCameraCenterOn = toApiFunction(
-  "camera:centerOn",
-  luaCameraCenterOnInner,
-  .{}
-) catch unreachable;
-
-pub fn luaCameraCenterOnInner(
-  level: LevelHandle,
-  entity: struct {id: ECS.Entity.Unmanaged}) !Level.Coord
+pub const luaCamera = struct
 {
-  const pos = mainspace.ecs.get(entity.id, "pos", Level.Coord) orelse
-    return error.MissingComponent;
+  parent: LevelHandle,
 
-  return luaCameraCenterInner(level, pos);
-}
-
-/// self:cameraCenter(pos) => pos
-/// Returns true camera position after centering
-pub const luaCameraCenter = toApiFunction(
-  "cameraCenter",
-  luaCameraCenterInner,
-  .{}
-) catch unreachable;
-
-fn luaCameraCenterInner(level: LevelHandle, pos: Level.Coord)
-  Level.Coord
-{
-  const truePos = pos - graphics.size()/@as(Level.Coord, @splat(2));
-  luaCameraSetPosInner(level, truePos);
-
-  return truePos;
-}
-
-/// self:cameraSetPos(pos) => nil
-pub const luaCameraSetPos = toApiFunction(
-  "cameraSetPos",
-  luaCameraSetPosInner,
-  .{}
-) catch unreachable;
-
-fn luaCameraSetPosInner(level: LevelHandle, pos: Level.Coord) void
-{
-  Level.levels.items[@intFromPtr(level.id)].camPos = pos;
-}
+  /// self.camera:centerOn(entity) => pos
+  /// Returns true camera position after centering
+  pub const centerOn = toApiFunction(
+    "camera:centerOn",
+    centerOnInner,
+    .{}
+  ) catch unreachable;
+  
+  pub fn centerOnInner(
+    self: @This(),
+    entity: struct {id: ECS.Entity.Unmanaged}) !Level.Coord
+  {
+    const pos = mainspace.ecs.get(entity.id, "pos", Level.Coord) orelse
+      return error.MissingComponent;
+  
+    return centerInner(self, pos);
+  }
+  
+  /// self.camera:centerOn(pos) => pos
+  /// Returns true camera position after centering
+  pub const center = toApiFunction(
+    "cameraCenter",
+    centerInner,
+    .{}
+  ) catch unreachable;
+  
+  fn centerInner(self: @This(), pos: Level.Coord)
+    Level.Coord
+  {
+    const truePos = pos - graphics.size()/@as(Level.Coord, @splat(2));
+    setPosInner(self, truePos);
+  
+    return truePos;
+  }
+  
+  /// self:cameraSetPos(pos) => nil
+  pub const setPos = toApiFunction(
+    "cameraSetPos",
+    setPosInner,
+    .{}
+  ) catch unreachable;
+  
+  fn setPosInner(
+    self: @This(),
+    pos: Level.Coord) void
+  {
+    Level.levels.items[@intFromPtr(self.parent.handle)].camPos = pos;
+  }
+};
 
 fn getLuaLevelPosArgs(self: *lua.Lua)
   struct {levelID: Level.ID, pos: Level.Coord}
@@ -560,11 +712,18 @@ fn toApiFunction(
       }
 
       arg.* = self.toAny(@TypeOf(arg.*), i) catch |e|
-      {
-        self.raiseErrorStr(
-          "%s arg %I expected type %s: %s",
-          .{name.ptr, i, @typeName(@TypeOf(arg.*)), @errorName(e).ptr}
-        );
+      blk:{
+        // toAny gives an error with optional void pointers, so here
+        if (e != error.ExpectedUserdata)
+        {
+          self.raiseErrorStr(
+            "%s arg %I expected type %s: %s",
+            .{name.ptr, i, @typeName(@TypeOf(arg.*)), @errorName(e).ptr}
+          );
+        } else
+        {
+          break:blk std.mem.zeroes(@TypeOf(arg.*));
+        }
       };
     }
 

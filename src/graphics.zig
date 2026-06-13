@@ -132,7 +132,7 @@ pub fn init(
 
     _ = nc.initscr() orelse {err = nc.ERR;};
     err |= nc.raw();
-    err |= nc.nodelay(nc.stdscr, true);
+    //err |= nc.nodelay(nc.stdscr, true);
     err |= nc.noecho();
     err |= nc.keypad(nc.stdscr, true);
     err |= nc.curs_set(0);
@@ -349,7 +349,11 @@ pub fn drawCh(pos: Level.Coord, ch: Char) Error!void
       chSpr = chSpr & ~acsBit | 0x400000;
     }
 
-    if (nc.mvaddch(pos[1], pos[0], chSpr) == nc.ERR) return Error.RenderFail;
+    // Ignore the error if we're writing to the bottom right corner
+    if (
+      nc.mvaddch(pos[1], pos[0], chSpr) == nc.ERR and
+      @reduce(.Or, pos != size() - @as(Level.Coord, @splat(1))))
+      return Error.RenderFail;
   }
 
   if (sdlData) |gfx|

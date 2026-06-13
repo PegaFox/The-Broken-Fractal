@@ -23,3 +23,6 @@ No guarantees are made about the order of same-name function calls. init functio
 Mod defined global variables are not allowed. Instead, fields may be added to the mods.modName table
 
 All tile/object/level ids are sequential per mod
+
+Key names in inputs.json are case-insensitive, but are PascalCase by convention
+Key combinations must be in the format [modifiers] <final key>

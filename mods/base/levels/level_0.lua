@@ -1,5 +1,5 @@
 -- The functions defined in this file are automatically namespaced, and as such are an exception to the no globals rule
--- self is an alias for mods.modName.levels.levelName
+-- self is an alias for fractal.mods.modName.levels.levelName
 function init(self)
 
   -- Remove extra tiles after this if possible

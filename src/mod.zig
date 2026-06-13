@@ -10,7 +10,9 @@ const Dir = Io.Dir;
 const File = Io.File;
 
 const directories = @import("directories.zig");
+const input = @import("input.zig");
 const tile = @import("tile.zig");
+const Object = @import("object.zig");
 const Level = @import("scenes/level.zig");
 
 const lua = @import("zlua");
@@ -21,6 +23,7 @@ version: std.SemanticVersion,
 
 /// These get default values so json parsing doesn't complain about missing fields
 tileStartType: tile.Type = undefined,
+objectStartType: Object.Type = undefined,
 levelStartID: Level.ID = undefined,
 
 pub var mods = std.ArrayList(Self).empty;
@@ -28,6 +31,11 @@ pub var mods = std.ArrayList(Self).empty;
 pub fn findTileMod(tileType: tile.Type) *const Self
 {
   return modBinarySearch("tileStartType", tileType);
+}
+
+pub fn findObjectMod(objectType: Object.Type) *const Self
+{
+  return modBinarySearch("objectStartType", objectType);
 }
 
 pub fn findLevelMod(levelID: Level.ID) *const Self
@@ -191,7 +199,13 @@ pub fn load(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
   std.debug.assert(luaEnv.?.getTable(-2) == .table);
   defer luaEnv.?.pop(2); // Clear the mod tables from the stack
 
+  try loadInputs(io, allocator, modDir);
+
   try loadTiles(io, allocator, modDir);
+
+  try loadActions(io, allocator, modDir);
+
+  try loadObjects(io, allocator, modDir);
 
   try loadLevels(io, allocator, modDir);
 
@@ -217,30 +231,40 @@ pub fn load(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
 
 pub fn unload(mod: *Self, allocator: Allocator) void
 {
-  var tileIt = tile.nameTypes.iterator();
-  while (tileIt.next()) |nameType|
-  {
-    if (!std.mem.eql(u8, nameType.key_ptr.mod, mod.name))
-    {
-      continue;
-    }
+  const modIndex = mod - mods.items.ptr;
 
-    allocator.free(tile.staticData.items[nameType.value_ptr.*].name);
-    tile.staticData.items[nameType.value_ptr.*] = undefined;
-    tile.nameTypes.removeByPtr(nameType.key_ptr);
+  const afterLastTileType = if (modIndex < mods.items.len-1)
+    mods.items[modIndex+1].tileStartType
+  else
+    tile.staticData.items.len;
+
+  for (tile.staticData.items[
+    mod.tileStartType..afterLastTileType
+  ]) |*modTile|
+  {
+    std.debug.assert(
+      tile.nameTypes.remove(.{.mod = mod.name, .name = modTile.name})
+    );
+
+    allocator.free(modTile.name);
+    modTile.* = undefined;
   }
 
-  var levelIt = Level.nameIDs.iterator();
-  while (levelIt.next()) |nameID|
-  {
-    if (!std.mem.eql(u8, nameID.key_ptr.mod, mod.name))
-    {
-      continue;
-    }
+  const afterLastLevelID = if (modIndex < mods.items.len-1)
+    mods.items[modIndex+1].levelStartID
+  else
+    Level.levels.items.len;
 
-    allocator.free(nameID.key_ptr.name);
-    Level.levels.items[nameID.value_ptr.*] = undefined;
-    Level.nameIDs.removeByPtr(nameID.key_ptr);
+  for (Level.levels.items[
+    mod.levelStartID..afterLastLevelID
+  ]) |*modLevel|
+  {
+    std.debug.assert(
+      Level.nameIDs.remove(.{.mod = mod.name, .name = modLevel.name})
+    );
+
+    allocator.free(modLevel.name);
+    modLevel.* = undefined;
   }
 
   allocator.free(mod.name);
@@ -265,17 +289,22 @@ fn loadInit(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
   log.info("Loading mod {s}\n", .{mods.getLast().name});
 
   // Add an element to the mods table, reserving space for tiles, objects, levels, and version
-  std.debug.assert(try luaEnv.?.getGlobal("mods") == .table);
+  std.debug.assert(try luaEnv.?.getGlobal("fractal") == .table);
+  std.debug.assert(luaEnv.?.getField(-1, "mods") == .table);
   _ = luaEnv.?.pushString(mods.getLast().name);
   try luaEnv.?.pushAny(
     struct
     {// Void slices to ensure empty tables
+      inputs: []void,
       tiles: []void,
+      actions: []void,
       objects: []void,
       levels: []void,
       version: std.SemanticVersion
     }{
+      .inputs = &.{},
       .tiles = &.{},
+      .actions = &.{},
       .objects = &.{},
       .levels = &.{},
       .version = mods.getLast().version
@@ -373,6 +402,278 @@ fn loadTiles(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
   }
 }
 
+fn loadInputs(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
+{
+  // At this point, the mod's table is at the top of the stack
+  std.debug.assert(luaEnv.?.getSubtable(-1, "inputs"));
+  defer luaEnv.?.pop(1);
+  if (modDir.openFile(io, "inputs.json", .{})) |inputFile|
+  {
+    defer inputFile.close(io);
+
+    const inputs =
+      try jsonFromFile(
+        []struct
+        {
+          name: []const u8,
+          defaultBinds: []struct {key: [:0]const u8},
+        },
+        io,
+        allocator,
+        inputFile
+      );
+    defer inputs.deinit();
+
+    log.info("Loading inputs\n", .{});
+
+    try input.bindings.ensureUnusedCapacity(allocator, 20);
+    for (inputs.value) |in|
+    {
+      const startIndex: input.IndexBinding = @intCast(input.bindings.items.len);
+
+      for (in.defaultBinds) |binding|
+      {
+        const keyCode = input.keyFromString(binding.key) catch |e|
+        {
+          log.err("Failed to get key \'{s}\': {}\n", .{binding.key, e});
+          continue;
+        };
+
+        try input.bindings.append(allocator, keyCode);
+
+        try input.bindings.append(allocator, 0);
+      }
+
+      try input.inputs.put(
+        allocator,
+        startIndex,
+        try allocator.dupe(u8, in.name),
+      );
+      //try Object.nameTypes.putNoClobber(
+      //  allocator,
+      //  .{.mod = mods.getLast().name, .name = tile.staticData.getLast().name},
+      //  @intCast(tile.staticData.items.len-1)
+      //);
+      
+      _ = luaEnv.?.pushString(in.name);
+      luaEnv.?.pushValue(-1);
+      luaEnv.?.setTable(-3);
+    }
+  } else |e|
+  {
+    log.warn("No inputs.json found: {}, skipping\n", .{e});
+  }
+}
+
+fn loadActions(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
+{
+  // At this point, the mod's table is at the top of the stack
+  std.debug.assert(luaEnv.?.getSubtable(-1, "actions"));
+  defer luaEnv.?.pop(1);
+  if (modDir.openDir(io, "actions", .{.iterate = true})) |actionDir|
+  {
+    defer actionDir.close(io);
+
+    var walker = try actionDir.walk(allocator);
+    defer walker.deinit();
+    while (walker.next(io) catch null) |entry|
+    {
+      if (entry.kind != .file)
+      {
+        continue;
+      }
+
+      if (!std.mem.eql(u8, path.extension(entry.basename), ".json"))
+      {
+        continue;
+      }
+
+      const actionFile = actionDir.openFile(io, entry.path, .{}) catch continue;
+      defer actionFile.close(io);
+
+      const actionInfo =
+        try jsonFromFile(struct {name: []const u8}, io, allocator, actionFile);
+      defer actionInfo.deinit();
+
+      log.info("Loading action {s}\n", .{actionInfo.value.name});
+
+      //try Object.staticData.append(allocator, .{
+      //  .name = try allocator.dupe(u8, actionInfo.value.name),
+      //  .ch = actionInfo.value.ch,
+      //  .color = actionInfo.value.color,
+      //});
+      //try Object.nameTypes.putNoClobber(
+      //  allocator,
+      //  .{.mod = mods.getLast().name, .name = tile.staticData.getLast().name},
+      //  @intCast(tile.staticData.items.len-1)
+      //);
+
+      _ = luaEnv.?.pushString(actionInfo.value.name);
+      luaEnv.?.createTable(0, 1);
+      const luaFilePath = try std.mem.concat(
+        allocator, u8, &.{entry.path[0..entry.path.len-4], "lua"}
+      );
+      defer allocator.free(luaFilePath);
+      if (actionDir.openFile(io, luaFilePath, .{})) |luaFile|
+      {
+        const name = try std.mem.concatWithSentinel(
+          allocator, u8, &.{mods.getLast().name, ".", actionInfo.value.name}, 0
+        );
+        defer allocator.free(name);
+
+        try luaUtil.runFile(luaEnv.?, io, luaFile, name);
+
+        inline for (.{
+          "queue",
+        }) |functionName|
+        {
+          if (luaEnv.?.getGlobal(functionName)) |t|
+          {
+            std.debug.assert(t == .function);
+
+            luaEnv.?.setField(-2, functionName);
+
+            luaEnv.?.pushNil();
+            luaEnv.?.setGlobal(functionName);
+          } else |e|
+          {
+            luaEnv.?.pop(1);
+
+            log.warn(
+              "No " ++ functionName ++ " function found for action {s}: {}, skipping\n",
+              .{actionInfo.value.name, e}
+            );
+          }
+        }
+      } else |e|
+      {
+        log.warn(
+          "No lua file found for action {s}: {}, skipping\n",
+          .{actionInfo.value.name, e}
+        );
+      }
+      luaEnv.?.setTable(-3);
+    }
+  } else |e|
+  {
+    log.warn("No actions directory found: {}, skipping\n", .{e});
+  }
+}
+
+fn loadObjects(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
+{
+  // At this point, the mod's table is at the top of the stack
+  std.debug.assert(luaEnv.?.getSubtable(-1, "objects"));
+  defer luaEnv.?.pop(1);
+  if (modDir.openDir(io, "objects", .{.iterate = true})) |objectDir|
+  {
+    defer objectDir.close(io);
+
+    var walker = try objectDir.walk(allocator);
+    defer walker.deinit();
+    while (walker.next(io) catch null) |entry|
+    {
+      if (entry.kind != .file)
+      {
+        continue;
+      }
+
+      if (!std.mem.eql(u8, path.extension(entry.basename), ".json"))
+      {
+        continue;
+      }
+
+      const objectFile = objectDir.openFile(io, entry.path, .{}) catch continue;
+      defer objectFile.close(io);
+
+      const objectInfo =
+        try jsonFromFile(Object.StaticData, io, allocator, objectFile);
+      defer objectInfo.deinit();
+
+      log.info("Loading object {s}\n", .{objectInfo.value.name});
+
+      try Object.staticData.append(allocator, .{
+        .name = try allocator.dupe(u8, objectInfo.value.name),
+        .ch = objectInfo.value.ch,
+        .color = objectInfo.value.color,
+      });
+      try Object.nameTypes.putNoClobber(
+        allocator,
+        .{.mod = mods.getLast().name, .name = tile.staticData.getLast().name},
+        @intCast(tile.staticData.items.len-1)
+      );
+
+      const data = Object.staticData.getLast();
+      _ = luaEnv.?.pushString(data.name);
+      try luaEnv.?.pushAny(
+        struct
+        {
+          color: struct {r: f32, g: f32, b: f32},
+          ch: []const u8
+        }{
+          .color = .{
+            .r = data.color[0],
+            .g = data.color[1],
+            .b = data.color[2]
+          },
+          .ch = (&tile.staticData.getLast().ch)[0..1],
+        }
+      );
+
+      // Copy mod table reference
+      luaEnv.?.pushValue(-4);
+      luaEnv.?.setField(-2, "mod");
+
+      const luaFilePath = try std.mem.concat(
+        allocator, u8, &.{entry.path[0..entry.path.len-4], "lua"}
+      );
+      defer allocator.free(luaFilePath);
+      if (objectDir.openFile(io, luaFilePath, .{})) |luaFile|
+      {
+        const name = try std.mem.concatWithSentinel(
+          allocator, u8, &.{mods.getLast().name, ".", objectInfo.value.name}, 0
+        );
+        defer allocator.free(name);
+
+        try luaUtil.runFile(luaEnv.?, io, luaFile, name);
+
+        inline for (.{
+          "takeTurn",
+        }) |functionName|
+        {
+          if (luaEnv.?.getGlobal(functionName)) |t|
+          {
+            std.debug.assert(t == .function);
+
+            luaEnv.?.setField(-2, functionName);
+
+            luaEnv.?.pushNil();
+            luaEnv.?.setGlobal(functionName);
+          } else |e|
+          {
+            luaEnv.?.pop(1);
+
+            log.warn(
+              "No " ++ functionName ++ " function found for object {s}: {}, skipping\n",
+              .{objectInfo.value.name, e}
+            );
+          }
+        }
+      } else |e|
+      {
+        log.warn(
+          "No lua file found for object {s}: {}, skipping\n",
+          .{objectInfo.value.name, e}
+        );
+      }
+      luaEnv.?.setTable(-3);
+    }
+  } else |e|
+  {
+    log.warn("No objects directory found: {}, skipping\n", .{e});
+  }
+}
+
 fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
 {
   // At this point, the mod's table is at the top of the stack
@@ -446,27 +747,27 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
         pushLevelSubNamespace(
           "tiles",
           .{
-            .get = luaUtil.luaTileGet,
-            .getInfo = luaUtil.luaTileGetInfo,
-            .count = luaUtil.luaTileCount,
-            .iterate = luaUtil.luaTileIterate,
-            .remove = luaUtil.luaTileRemove,
+            .get = luaUtil.luaTile.get,
+            .getInfo = luaUtil.luaTile.getInfo,
+            .count = luaUtil.luaTile.count,
+            .iterate = luaUtil.luaTile.iterate,
+            .remove = luaUtil.luaTile.remove,
           }
         ) catch unreachable;
 
         pushLevelSubNamespace(
           "camera",
           .{
-            .setPos = luaUtil.luaCameraSetPos,
-            .center = luaUtil.luaCameraCenter,
-            .centerOn = luaUtil.luaCameraCenterOn,
+            .setPos = luaUtil.luaCamera.setPos,
+            .center = luaUtil.luaCamera.center,
+            .centerOn = luaUtil.luaCamera.centerOn,
           }
         ) catch unreachable;
 
         pushLevelSubNamespace(
           "objects",
           .{
-            .get = luaUtil.luaObjectGet,
+            .get = luaUtil.luaObject.get,
           }
         ) catch unreachable;
 

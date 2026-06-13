@@ -21,6 +21,7 @@ const graphics = @import("graphics.zig");
 const ECS = @import("ecs");
 
 //const appdata = @import("appdata.zig");
+const Turn = @import("turn.zig");
 const Scene = @import("scene.zig");
 const Level = @import("scenes/level.zig");
 const Level_0 = @import("levels/level_0.zig");
@@ -109,10 +110,11 @@ pub fn main(init: std.process.Init) !void
   // TODO: Move this logic to base mod (set player position to level on mod init)
   Level.currentLevel = 0;
 
-  try Level.objects.append(init.gpa, .init(.Player, .{0, 0}, .{
+  try Level.objects.append(init.gpa, .init(0, .{0, 0}, .{
     .sight = Sight{.radius = 15, .view = .empty},
     .tileMemory = TileMemory{.tiles = .empty},
   }));
+  try Turn.push(init.gpa, &ecs, Level.objects.getLast());
 
   defer ecs.getPtr(
     Level.objects.items[0].id, "tileMemory", TileMemory
@@ -138,8 +140,6 @@ pub fn main(init: std.process.Init) !void
     //frameStart = newFrame;
     //log.info("FPS: {} ({})\n", .{std.time.us_per_s / frameTime, frameTime});
 
-    try input.getInput(init.io);
-    
     try Scene.currentScene.update();
 
     //log.info("Start frame\n", .{});
