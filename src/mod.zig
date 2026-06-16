@@ -808,6 +808,7 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
           "objects",
           .{
             .get = luaUtil.luaObject.get,
+            .add = lua.wrap(luaUtil.luaObject.add),
           }
         ) catch unreachable;
 

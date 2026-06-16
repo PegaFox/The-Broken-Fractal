@@ -1,9 +1,45 @@
 -- The functions defined in this file are automatically namespaced, and as such are an exception to the no globals rule
 -- self is an alias for fractal.mods.modName.levels.levelName
 function init(self)
-
   -- Remove extra tiles after this if possible
   self.tiles.max = 400
+  
+  local used = {}
+  local display
+  display = function(used, table)
+    for key, value in pairs(table) do
+      if used[value] == nil then
+        used[value] = true
+        if type(value) == "table" then
+          print(key, " = ")
+          display(used, value)
+        else
+          print(key, " = ", value)
+        end
+      end
+    end
+  end
+
+  print("Hello, Level 0!");
+  --display(used, self)
+
+  --try Level.objects.append(init.gpa, .init(0, .{0, 0}, .{
+  --  .sight = Sight{.radius = 15, .view = .empty},
+  --  .tileMemory = TileMemory{.tiles = .empty},
+  --}));
+  --try Turn.push(init.gpa, &ecs, Level.objects.getLast());
+  --defer Turn.queue.deinit(init.gpa);
+
+  --defer ecs.getPtr(
+  --  Level.objects.items[0].id, "tileMemory", TileMemory
+  --).?.tiles.deinit(init.gpa);
+  --defer ecs.getPtr(
+  --  Level.objects.items[0].id, "sight", Sight
+  --).?.view.deinit(init.gpa);
+  self.objects:add(
+    {"base", "player"},
+    {pos = {0, 0}, sight = {radius = 15}, memory = {}}
+  )
 end
 
 function deinit(self)
@@ -60,14 +96,14 @@ end
 function generateTile(self, pos)
   local result = nil
   if pos[1]%2 == 1 and pos[2]%2 == 1 then
-    result = {"cyanideCarpet"}
+    result = {"base", "cyanideCarpet"}
   elseif pos[1]%2 == 0 and pos[2]%2 == 0 then
-    result = {"yellowWallpaper"}
+    result = {"base", "yellowWallpaper"}
   else
     if math.random(0, 3) == 0 then
-      result = {"yellowWallpaper"}
+      result = {"base", "yellowWallpaper"}
     else
-      result = {"cyanideCarpet"}
+      result = {"base", "cyanideCarpet"}
     end
   end
 
@@ -77,7 +113,7 @@ function generateTile(self, pos)
     self.tiles:getInfo({pos[1], pos[2]-1}).walkable and
     self.tiles:getInfo({pos[1], pos[2]+1}).walkable
   then
-    result = {"cyanideCarpet"}
+    result = {"base", "cyanideCarpet"}
   end
 
   --print("Generate "..result[1].." at {"..tostring(pos).."}")

@@ -138,7 +138,7 @@ pub fn getAction(object: Self, ecs: *ECS) Turn
     if (state.getTable(-2) != .table) break:luaFail;
     if (state.getField(-1, "takeTurn") != .function) break:luaFail;
     // Push 'this' argument
-    luaUtil.luaObject.generate(state, ecs, object);
+    luaUtil.luaObject.generateLua(state, ecs, object);
     state.protectedCall(.{.args = 1, .results = 1}) catch
     {
       switch (state.typeOf(-1))

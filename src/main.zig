@@ -47,7 +47,8 @@ pub const std_options = std.Options{
 pub var randomEngine = std.Random.DefaultPrng.init(0);
 pub var rand = randomEngine.random();
 
-//pub var allocator = std.heap.GeneralPurposeAllocator(.{}).init;
+/// I want to avoid using this, there are some functions where I can't pass an allocator down so we need this
+pub var allocator: std.mem.Allocator = undefined;
 
 pub var ecs: ECS = undefined;
 
@@ -67,6 +68,8 @@ pub fn main(init: std.process.Init) !void
   logger.logFilePathLen = options.logFileLen;
 
   log.info("Entered main function\n", .{});
+
+  allocator = init.gpa;
     
   ecs = .init(init.gpa);
   defer ecs.deinit();
@@ -110,11 +113,6 @@ pub fn main(init: std.process.Init) !void
   // TODO: Move this logic to base mod (set player position to level on mod init)
   Level.currentLevel = 0;
 
-  try Level.objects.append(init.gpa, .init(0, .{0, 0}, .{
-    .sight = Sight{.radius = 15, .view = .empty},
-    .tileMemory = TileMemory{.tiles = .empty},
-  }));
-  try Turn.push(init.gpa, &ecs, Level.objects.getLast());
   defer Turn.queue.deinit(init.gpa);
 
   defer ecs.getPtr(
@@ -124,7 +122,7 @@ pub fn main(init: std.process.Init) !void
     Level.objects.items[0].id, "sight", Sight
   ).?.view.deinit(init.gpa);
 
-  log.info("Initialized player as entity {}\n", .{Level.objects.items[0]});
+  //log.info("Initialized player as entity {}\n", .{Level.objects.items[0]});
 
   Scene.currentScene = Scene.scenes.get(.Level);
   _ = try Scene.currentScene.enter();
@@ -161,12 +159,12 @@ pub fn main(init: std.process.Init) !void
 }
 
 const ArgError = error{MissingArgument};
-fn handleArgs(args: std.process.Args, allocator: Allocator)
+fn handleArgs(args: std.process.Args, gpa: Allocator)
   (ArgError || Allocator.Error)!?StartOptions
 {
   var result = StartOptions{};
 
-  var it = try args.iterateAllocator(allocator);
+  var it = try args.iterateAllocator(gpa);
   defer it.deinit();
   while (it.next()) |arg|
   {

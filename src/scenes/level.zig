@@ -61,6 +61,51 @@ pub const interface = Scene{
     .init = struct {fn init(allocator: Allocator) !*const Scene
     {
       gpa = allocator;
+
+      if (Mod.luaEnv) |lua|
+      luaFail:{
+        const top = lua.getTop();
+        defer lua.setTop(top);
+
+        if (lua.getGlobal("fractal") catch break:luaFail != .table)
+          break:luaFail;
+        if (!lua.getSubtable(-1, "mods")) break:luaFail;
+
+        for (0.., Mod.mods.items) |m, mod|
+        {
+          _ = lua.pushString(mod.name);
+          if (lua.getTable(-2) != .table) break:luaFail;
+          if (!lua.getSubtable(-1, "levels")) break:luaFail;
+
+          const levelStopID = if (m < Mod.mods.items.len-1)
+            Mod.mods.items[m+1].levelStartID
+          else
+            levels.items.len;
+          for (levels.items[mod.levelStartID..levelStopID]) |level|
+          {
+            _ = lua.pushString(level.name);
+            if (lua.getTable(-2) != .table) break:luaFail;
+            if (lua.getField(-1, "init") != .function) break:luaFail;
+            // Push 'this' argument
+            lua.pushNil();
+            lua.copy(-3, -1);
+            lua.protectedCall(.{.args = 1, .results = 0}) catch
+            {
+              switch (lua.typeOf(-1))
+              {
+                .string => log.err(
+                  "Lua error: {s}\n", .{lua.toString(-1) catch unreachable}
+                ),
+                else => {}
+              }
+
+              lua.pop(1);
+              break:luaFail;
+            };
+          }
+        }
+      }
+
       return &interface;
     }}.init,
 

@@ -1,3 +1,4 @@
+-- This mod currently does not work with other mods (kind of ruins the point of mods, doesn't it?)
 print("Hello from The Broken Fractal!")
 
 --print(fractal)

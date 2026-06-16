@@ -9,8 +9,10 @@ const log = std.log;
 const ECS = @import("ecs");
 const input = @import("input.zig");
 const graphics = @import("graphics.zig");
+const Turn = @import("turn.zig");
 const Mod = @import("mod.zig");
 const Sight = @import("sight.zig");
+const TileMemory = @import("tile_memory.zig");
 const Object = @import("object.zig");
 const Level = @import("scenes/level.zig");
 const tile = @import("tile.zig");
@@ -187,6 +189,7 @@ pub fn globalCount(self: *lua.Lua) usize
   return count;
 }
 
+var printedTables = std.AutoHashMapUnmanaged().empty;
 var luaPrintEndsInNewline = true;
 fn luaPrint(self: *lua.Lua) i32
 {
@@ -448,7 +451,7 @@ pub const luaObject = struct
         "Index out of range"
       );
   
-      generate(
+      generateLua(
         self,
         &mainspace.ecs,
         Level.objects.items[@intCast(index)]
@@ -466,7 +469,7 @@ pub const luaObject = struct
           "Index out of range"
         );
   
-        generate(
+        generateLua(
           self,
           &mainspace.ecs,
           Level.objects.items[@intCast(index)]
@@ -482,9 +485,49 @@ pub const luaObject = struct
     return 0;
   }
 
+  /// self.objects:add(type, object) or
+  /// self.objects.add(type, object) => {
+  ///   id: ECS.Entity.Unmanaged,
+  ///   if hasComponent(sight) sight
+  /// }
+  pub fn add(state: *lua.Lua) !i32
+  {
+    // Remove self argument if present
+    if (state.getTop() > 2)
+    {
+      state.remove(1);
+    }
+
+    state.rotate(1, 1);
+    std.debug.assert(state.getIndex(-1, 1) == .string);
+    std.debug.assert(state.getIndex(-2, 2) == .string);
+
+    const objectType = Object.nameTypes.get(.{
+      .mod = state.toString(-2) catch unreachable,
+      .name = state.toString(-1) catch unreachable
+    }) orelse return error.InvalidIdentifier;
+
+    if (objectType >= Object.staticData.items.len)
+      return error.InvalidIdentifier;
+
+    state.pushInteger(objectType);
+
+    state.setField(1, "type");
+
+    const object = generateZig(state, state.allocator(), &mainspace.ecs) catch
+    {
+      state.argError(1, "ExpectedArgument");
+      return 0;
+    };
+
+    try Level.objects.append(state.allocator(), object);
+
+    return 0;
+  }
+
   /// Pushes an object table with the object's components onto the lua stack
   /// Does not verify stack space
-  pub fn generate(state: *lua.Lua, ecs: *ECS, object: Object) void
+  pub fn generateLua(state: *lua.Lua, ecs: *ECS, object: Object) void
   {
     state.createTable(0, 5);
 
@@ -565,6 +608,82 @@ pub const luaObject = struct
     }
 
     state.setTop(objectTableIdx);
+  }
+
+  /// The inverse of generateLua, converting a lua table into a new object
+  pub fn generateZig(state: *lua.Lua, allocator: Allocator, ecs: *ECS)
+    error{OutOfMemory, ExpectedArgument}!Object
+  {
+    if (state.getTop() == 0)
+    {
+      return error.ExpectedArgument;
+    }
+
+    const result = Object{.id = ecs.addEntity(.{}).id};
+    try Turn.push(allocator, ecs, result);
+
+    if (state.getField(1, "type") == .number and state.isInteger(-1))
+    {
+      // Assume type field fits inside of Object.Type since this function will likely be called from LuaObject.add
+      ecs.addC(
+        result.id,
+        "objectType",
+        @as(Object.Type, @intCast(state.toInteger(-1) catch unreachable))
+      );
+    }
+    state.setTop(1);
+
+    _ = state.getField(1, "pos");
+    _ = state.getIndex(-1, 1);
+    _ = state.getIndex(-2, 2);
+    log.debug("pos = {}\n", .{.{state.toInteger(-2), state.toInteger(-1)}});
+    if (
+      state.getField(1, "pos") == .table and
+      state.getIndex(-1, 1) == .number and
+      state.isInteger(-1) and
+      state.getIndex(-2, 2) == .number and 
+      state.isInteger(-1))
+    {
+      ecs.addC(
+        result.id,
+        "pos",
+        Level.Coord{
+          @truncate(state.toInteger(-2) catch unreachable),
+          @truncate(state.toInteger(-1) catch unreachable)
+        }
+      );
+    }
+    state.setTop(1);
+
+    if (
+      state.getField(1, "sight") == .table and
+      state.getField(-1, "radius") == .number and
+      state.isInteger(-1))
+    {
+      ecs.addC(
+        result.id,
+        "sight",
+        Sight{
+          .radius = @truncate(@max(0, state.toInteger(-1) catch unreachable)),
+          .view = .empty,
+        }
+      );
+    }
+    state.setTop(1);
+
+    if (state.getField(1, "memory") == .table)
+    {
+      ecs.addC(
+        result.id,
+        "tileMemory",
+        TileMemory{
+          .tiles = .empty,
+        }
+      );
+    }
+    state.setTop(1);
+
+    return result;
   }
 };
 
