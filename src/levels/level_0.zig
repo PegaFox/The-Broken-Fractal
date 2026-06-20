@@ -51,30 +51,9 @@ const sceneVTable = Scene.VTable{
     _ = inputEvent;
   }}.getInput,
 
-  .update = struct {fn update(self: *const Scene) !void {
+  .update = struct {fn update(self: *const Scene) !void
+  {
     _ = self;
-
-    const playerSight =
-      mainspace.ecs.getPtr(Level.objects.items[0].id, "sight", Sight).?;
-    var keys = level.tiles.keys();
-    for (keys) |key|
-    {
-      if (level.tiles.count() <= maxTiles)
-      {
-        break;
-      }
-
-      if (!playerSight.inView(key))
-      {
-        log.debug("Remove tile {}\n", .{
-          key - mainspace.ecs.getComponent(
-            Level.objects.items[0].id, "pos", Level.Coord
-          ).?
-        });
-        if (!level.tiles.orderedRemove(key)) unreachable;
-        keys = level.tiles.keys();
-      }
-    }
   }}.update,
 
   .draw = struct {fn draw(self: *const Scene)

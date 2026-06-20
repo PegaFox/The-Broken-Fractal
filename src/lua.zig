@@ -765,10 +765,16 @@ fn getLuaLevelPosArgs(self: *lua.Lua)
 
   self.argExpected(self.isTable(2), 2, "pos");
   self.argCheck(
-    self.getIndex(2, 1) == .number, 1, "must be a number"
+    self.getIndex(2, 1) == .number, 1, "must be an integer"
   );
   self.argCheck(
-    self.getIndex(2, 2) == .number, 1, "must be a number"
+    self.isInteger(-1), 1, "must be an integer"
+  );
+  self.argCheck(
+    self.getIndex(2, 2) == .number, 1, "must be an integer"
+  );
+  self.argCheck(
+    self.isInteger(-1), 1, "must be an integer"
   );
 
   const pos = Level.Coord{

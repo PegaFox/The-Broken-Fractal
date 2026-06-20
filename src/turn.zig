@@ -80,6 +80,8 @@ pub fn stepTime(ecs: *ECS) Duration
   {
     luaUtil.runFunction(luaState) catch unreachable;
   }
+
+  present += duration;
   return duration;
 }
 

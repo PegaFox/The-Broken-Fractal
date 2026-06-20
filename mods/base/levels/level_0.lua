@@ -40,6 +40,11 @@ function init(self)
     {"base", "player"},
     {pos = {0, 0}, sight = {radius = 15}, memory = {}}
   )
+  -- Oh, no! It's not lore accurate!
+  self.objects:add(
+    {"base", "smiler"},
+    {pos = {30, 30}}
+  )
 end
 
 function deinit(self)

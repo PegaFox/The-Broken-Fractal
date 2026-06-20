@@ -163,7 +163,10 @@ pub const interface = Scene{
 
     .update = struct {fn update(self: *const Scene) !void
     {_ = self;
-      log.debug("{} time step(s) later...\n", .{Turn.stepTime(&mainspace.ecs)});
+      log.debug(
+        "{} time step(s) later. Current time = {}\n",
+        .{Turn.stepTime(&mainspace.ecs), Turn.present}
+      );
 
       var luaSuccess = false;
       if (Mod.luaEnv) |lua|
