@@ -11,6 +11,7 @@ const input = @import("input.zig");
 const graphics = @import("graphics.zig");
 const Turn = @import("turn.zig");
 const Mod = @import("mod.zig");
+const Overtime = @import("overtime.zig");
 const Sight = @import("sight.zig");
 const TileMemory = @import("tile_memory.zig");
 const Object = @import("object.zig");
@@ -83,7 +84,7 @@ pub fn runFile(self: *lua.Lua, io: Io, file: File, name: [:0]const u8)
 {
   try loadFile(self, io, file, name);
 
-  try runFunction(self);
+  try runFunction(self, .{});
 }
 
 pub fn loadFile(self: *lua.Lua, io: Io, file: File, name: [:0]const u8)
@@ -129,10 +130,10 @@ pub fn loadFile(self: *lua.Lua, io: Io, file: File, name: [:0]const u8)
 }
 
 /// Logs an error if the function fails
-pub fn runFunction(self: *lua.Lua)
+pub fn runFunction(self: *lua.Lua, args: lua.Lua.ProtectedCallArgs)
   error{LuaSyntax, OutOfMemory, LuaRuntime, LuaMsgHandler, LuaGCMetaMethod}!void
 {
-  self.protectedCall(.{}) catch |e|
+  self.protectedCall(args) catch |e|
   {
     // Types are commented out if I can't think of a good way to log them
     switch (self.typeOf(-1))
@@ -208,7 +209,7 @@ fn luaPrint(self: *lua.Lua) i32
 
         std.debug.assert(
           self.getGlobal("print") catch unreachable == .function);
-        const printAddress = self.getTop();
+        const printIdx = self.getTop();
 
         log.info("{{ ", .{});
         self.pushNil();
@@ -223,11 +224,11 @@ fn luaPrint(self: *lua.Lua) i32
           }
           first = false;
 
-          self.pushValue(printAddress);
+          self.pushValue(printIdx);
           self.pushValue(-3);
           self.protectedCall(.{.args = 1}) catch self.raiseError();
           log.info(" = ", .{});
-          self.pushValue(printAddress);
+          self.pushValue(printIdx);
           self.rotate(-2, 1);
           self.protectedCall(.{.args = 1}) catch self.raiseError();
         }
@@ -682,6 +683,30 @@ pub const luaObject = struct
       );
     }
     state.setTop(1);
+
+    inline for ([_][:0]const u8{"energy", "food", "fluid", "sanity"}) |stat|
+    {
+      if (
+        state.getField(1, stat) == .table and
+        state.getField(2, "value") == .number and 
+        state.isInteger(-1))
+      {
+        _ = state.getField(2, "rate");
+
+        ecs.addC(
+          result.id,
+          stat,
+          Overtime{
+            .value = .{
+              .value =
+                @truncate(@max(0, state.toInteger(-2) catch unreachable))
+            },
+            .moveRate = @truncate(state.toInteger(-1) catch -1),
+          }
+        );
+      }
+      state.setTop(1);
+    }
 
     return result;
   }

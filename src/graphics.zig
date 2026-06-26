@@ -341,6 +341,13 @@ pub fn setDrawColor(fg: Color, bg: Color) Error!void
 
 pub fn drawCh(pos: Level.Coord, ch: Char) Error!void
 {
+  if (
+    @reduce(.Or, pos < @as(Level.Coord, @splat(0))) or
+    @reduce(.Or, pos >= size()))
+  {
+    return;
+  }
+
   if (ncData != null)
   {
     var chSpr: nc.chtype = ch;
@@ -353,7 +360,10 @@ pub fn drawCh(pos: Level.Coord, ch: Char) Error!void
     if (
       nc.mvaddch(pos[1], pos[0], chSpr) == nc.ERR and
       @reduce(.Or, pos != size() - @as(Level.Coord, @splat(1))))
+    {
+      //log.err("Failed to render \'{s}\'({}) to coordinate {}. (win size: {})\n", .{(&@as(u8, @truncate(chSpr)))[0..1], chSpr, pos, size()});
       return Error.RenderFail;
+    }
   }
 
   if (sdlData) |gfx|

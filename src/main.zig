@@ -13,7 +13,8 @@ pub const sdl = @cImport({
 });
 
 const directories = @import("directories.zig");
-const mod = @import("mod.zig");
+const luaUtil = @import("lua.zig");
+const Mod = @import("mod.zig");
 const logger = @import("debug_log_fn.zig");
 const input = @import("input.zig");
 const graphics = @import("graphics.zig");
@@ -27,6 +28,7 @@ const Level = @import("scenes/level.zig");
 const Level_0 = @import("levels/level_0.zig");
 const Object = @import("object.zig");
 const Player = @import("player.zig");
+const Overtime = @import("overtime.zig");
 const Sight = @import("sight.zig");
 const TileMemory = @import("tile_memory.zig");
 
@@ -78,8 +80,8 @@ pub fn main(init: std.process.Init) !void
   rand = randomEngine.random();
 
   directories.initSearchPaths(init.io);
-  try mod.loadAll(init.io, init.gpa);
-  defer mod.unloadAll(init.gpa, false);
+  try Mod.loadAll(init.io, init.gpa);
+  defer Mod.unloadAll(init.gpa, false);
 
   for (Scene.scenes.values) |scene|
   {
@@ -139,7 +141,41 @@ pub fn main(init: std.process.Init) !void
     //frameStart = newFrame;
     //log.info("FPS: {} ({})\n", .{std.time.us_per_s / frameTime, frameTime});
 
+    var componentIt = ecs.componentTable.iterator();
+    while (componentIt.next()) |component|
+    {
+      if (!std.mem.eql(u8, component.value_ptr.typeID, @typeName(Overtime)))
+      {
+        continue;
+      }
+
+      for (ecs.getArr(component.key_ptr.*, Overtime).?) |*overtime|
+      {
+        overtime.update();
+        //log.debug("Component {s} updated to {}\n", .{component.key_ptr.*, overtime.value});
+      }
+    }
+
     try Scene.currentScene.update();
+
+    if (Mod.luaEnv) |luaState|
+    {
+      const top = luaState.getTop();
+      defer luaState.setTop(top);
+
+      std.debug.assert(try luaState.getGlobal("fractal") == .table);
+      std.debug.assert(luaState.getField(-1, "mods") == .table);
+
+      for (Mod.mods.items) |mod|
+      {
+        _ = luaState.pushString(mod.name);
+        std.debug.assert(luaState.getTable(-2) == .table);
+        std.debug.assert(luaState.getField(-1, "update") == .function);
+
+        luaState.pushValue(-2);
+        try luaUtil.runFunction(luaState, .{.args = 1});
+      }
+    }
 
     //log.info("Start frame\n", .{});
     try graphics.startFrame();

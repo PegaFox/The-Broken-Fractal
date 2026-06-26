@@ -22,6 +22,7 @@ name: []const u8,
 version: std.SemanticVersion,
 
 /// These get default values so json parsing doesn't complain about missing fields
+inputStartType: tile.Type = undefined,
 tileStartType: tile.Type = undefined,
 objectStartType: Object.Type = undefined,
 levelStartID: Level.ID = undefined,
@@ -244,15 +245,15 @@ pub fn unload(mod: *Self, allocator: Allocator) void
   //  input.inputs.count();
 
   //for (input.inputs.items[
-  //  mod.tileStartType..afterLastInputType
-  //]) |*modTile|
+  //  mod.inputStartType..afterLastInputType
+  //]) |*modInput|
   //{
   //  std.debug.assert(
   //    tile.nameTypes.remove(.{.mod = mod.name, .name = modTile.name})
   //  );
 
-  //  allocator.free(modTile.name);
-  //  modTile.* = undefined;
+  //  allocator.free(modInput.name);
+  //  modInput.* = undefined;
   //}
 
   const afterLastTileType = if (modIndex < mods.items.len-1)
@@ -350,22 +351,47 @@ fn loadInit(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
       .version = mods.getLast().version
     }
   );
-  luaEnv.?.setTable(-3);
   
-  if (modDir.openFile(io, "init.lua", .{})) |initFile|
+  if (modDir.openFile(io, "mod.lua", .{})) |modFile|
   {
-    defer initFile.close(io);
+    defer modFile.close(io);
 
     const name = try std.mem.concatWithSentinel(
-      allocator, u8, &.{mods.getLast().name, ".init"}, 0
+      allocator, u8, &.{mods.getLast().name, ".mod"}, 0
     );
     defer allocator.free(name);
 
-    try luaUtil.runFile(luaEnv.?, io, initFile, name);
+    try luaUtil.runFile(luaEnv.?, io, modFile, name);
+
+    for ([_][:0]const u8{
+      "init",
+      "deinit",
+      "update",
+    }) |functionName|
+    {
+      if (luaEnv.?.getGlobal(functionName)) |t|
+      {
+        std.debug.assert(t == .function);
+
+        luaEnv.?.setField(-2, functionName);
+
+        luaEnv.?.pushNil();
+        luaEnv.?.setGlobal(functionName);
+      } else |e|
+      {
+        luaEnv.?.pop(1);
+
+        log.warn(
+          "No {s} function found for mod {s}: {}, skipping\n",
+          .{functionName, info.value.name, e}
+        );
+      }
+    }
   } else |e|
   {
-    log.warn("No init.lua found: {}, skipping\n", .{e});
+    log.warn("No mod.lua found: {}, skipping\n", .{e});
   }
+  luaEnv.?.setTable(-3);
 }
 
 fn loadTiles(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
@@ -812,7 +838,7 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
           }
         ) catch unreachable;
 
-        inline for (.{
+        for ([_][:0]const u8{
           "init",
           "deinit",
           "enter",
@@ -834,8 +860,8 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
             luaEnv.?.pop(1);
 
             log.warn(
-              "No " ++ functionName ++ " function found for level {s}: {}, skipping\n",
-              .{levelInfo.value.name, e}
+              "No {s} function found for level {s}: {}, skipping\n",
+              .{functionName, levelInfo.value.name, e}
             );
           }
         }

@@ -139,19 +139,8 @@ pub fn getAction(object: Self, ecs: *ECS) Turn
     if (state.getField(-1, "takeTurn") != .function) break:luaFail;
     // Push 'this' argument
     luaUtil.luaObject.generateLua(state, ecs, object);
-    state.protectedCall(.{.args = 1, .results = 1}) catch
-    {
-      switch (state.typeOf(-1))
-      {
-        .string => log.err(
-          "Lua error: {s}\n", .{state.toString(-1) catch unreachable}
-        ),
-        else => {}
-      }
-
-      state.pop(1);
+    luaUtil.runFunction(state, .{.args = 1, .results = 1}) catch
       break:luaFail;
-    };
     if (state.typeOf(-1) != .table) break:luaFail;
 
     std.debug.assert(state.getField(lua.registry_index, "fractal") == .table);

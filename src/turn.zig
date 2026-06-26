@@ -78,7 +78,7 @@ pub fn stepTime(ecs: *ECS) Duration
   // TODO: Add error handling here
   if (hasAction)
   {
-    luaUtil.runFunction(luaState) catch unreachable;
+    luaUtil.runFunction(luaState, .{}) catch unreachable;
   }
 
   present += duration;

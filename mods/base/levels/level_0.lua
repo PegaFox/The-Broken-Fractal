@@ -38,7 +38,15 @@ function init(self)
   --).?.view.deinit(init.gpa);
   self.objects:add(
     {"base", "player"},
-    {pos = {0, 0}, sight = {radius = 15}, memory = {}}
+    {
+      pos = {0, 0},
+      sight = {radius = 15},
+      memory = {},
+      energy = {value = 100, rate = -1},
+      food = {value = 100, rate = -1},
+      fluid = {value = 100, rate = -1},
+      sanity = {value = 100, rate = -1},
+    }
   )
   -- Oh, no! It's not lore accurate!
   self.objects:add(

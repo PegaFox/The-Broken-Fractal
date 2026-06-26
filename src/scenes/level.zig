@@ -89,19 +89,8 @@ pub const interface = Scene{
             // Push 'this' argument
             lua.pushNil();
             lua.copy(-3, -1);
-            lua.protectedCall(.{.args = 1, .results = 0}) catch
-            {
-              switch (lua.typeOf(-1))
-              {
-                .string => log.err(
-                  "Lua error: {s}\n", .{lua.toString(-1) catch unreachable}
-                ),
-                else => {}
-              }
-
-              lua.pop(1);
+            luaUtil.runFunction(lua, .{.args = 1, .results = 0}) catch
               break:luaFail;
-            };
           }
         }
       }
@@ -186,19 +175,8 @@ pub const interface = Scene{
         // Push 'this' argument
         lua.pushNil();
         lua.copy(-3, -1);
-        lua.protectedCall(.{.args = 1, .results = 0}) catch
-        {
-          switch (lua.typeOf(-1))
-          {
-            .string => log.err(
-              "Lua error: {s}\n", .{lua.toString(-1) catch unreachable}
-            ),
-            else => {}
-          }
-
-          lua.pop(1);
+        luaUtil.runFunction(lua, .{.args = 1, .results = 0}) catch
           break:luaFail;
-        };
 
         luaSuccess = true;
       }
@@ -306,19 +284,7 @@ pub fn generateTile(self: *Self, pos: Coord)
     lua.pushNil();
     lua.copy(-3, -1);
     lua.pushAny(pos) catch break:luaFail;
-    lua.protectedCall(.{.args = 2, .results = 1}) catch
-    {
-      switch (lua.typeOf(-1))
-      {
-        .string => log.err(
-          "Lua error: {s}\n", .{lua.toString(-1) catch unreachable}
-        ),
-        else => {}
-      }
-
-      lua.pop(1);
-      break:luaFail;
-    };
+    luaUtil.runFunction(lua, .{.args = 2, .results = 1}) catch break:luaFail;
 
     if (!lua.isTable(-1)) break:luaFail;
 
