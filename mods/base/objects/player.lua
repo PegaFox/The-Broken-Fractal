@@ -1,5 +1,6 @@
 function takeTurn(self)
-  print("fractal.input = ", fractal.input())
+  print("player turn")
+  --print("fractal.input = ", fractal.input())
   print("pos = {", self.pos:get()[1], ", ", self.pos:get()[2], "}")
   local inputs = self.mod.inputs
   local modActions = self.mod.actions

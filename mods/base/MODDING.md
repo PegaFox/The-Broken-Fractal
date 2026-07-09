@@ -5,7 +5,7 @@ Names of mod directories and .zips are ignored. Name fields are used instead
 
 The game will warn when trying to load mods with invalid dependencies or SemVer
 
-init.lua is called at program start, use it wisely
+mod.init is called at program start, use it wisely
 
 tiles/, objects/, and levels/ are searched recursively so they can be organized in subfolders
 

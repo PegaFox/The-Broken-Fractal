@@ -1,4 +1,5 @@
 function takeTurn(self)
+  print("smiler turn")
   local modActions = self.mod.actions
 
   local pos = self.pos:get()
@@ -12,7 +13,7 @@ function takeTurn(self)
   if movement[1] ~= movement[1] then movement[1] = 0 end
   if movement[2] ~= movement[2] then movement[2] = 0 end
 
-  print(movement)
+  --print(movement)
 
   if movement[1] ~= 0 or movement[2] ~= 0 then
     return modActions.move.queue(

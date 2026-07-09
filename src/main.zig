@@ -49,8 +49,9 @@ pub const std_options = std.Options{
 pub var randomEngine = std.Random.DefaultPrng.init(0);
 pub var rand = randomEngine.random();
 
-/// I want to avoid using this, there are some functions where I can't pass an allocator down so we need this
+/// I want to avoid using this, there are some functions where I can't pass an allocator or io down so we need this
 pub var allocator: std.mem.Allocator = undefined;
+pub var io: std.Io = undefined;
 
 pub var ecs: ECS = undefined;
 
@@ -72,6 +73,7 @@ pub fn main(init: std.process.Init) !void
   log.info("Entered main function\n", .{});
 
   allocator = init.gpa;
+  io = init.io;
     
   ecs = .init(init.gpa);
   defer ecs.deinit();
@@ -82,6 +84,25 @@ pub fn main(init: std.process.Init) !void
   directories.initSearchPaths(init.io);
   try Mod.loadAll(init.io, init.gpa);
   defer Mod.unloadAll(init.gpa, false);
+
+  if (Mod.luaEnv) |luaState|
+  {
+    const top = luaState.getTop();
+    defer luaState.setTop(top);
+
+    std.debug.assert(try luaState.getGlobal("fractal") == .table);
+    std.debug.assert(luaState.getField(-1, "mods") == .table);
+
+    for (Mod.mods.items) |mod|
+    {
+      _ = luaState.pushString(mod.name);
+      std.debug.assert(luaState.getTable(-2) == .table);
+      std.debug.assert(luaState.getField(-1, "init") == .function);
+
+      luaState.pushValue(-2);
+      try luaUtil.runFunction(luaState, .{.args = 1});
+    }
+  }
 
   for (Scene.scenes.values) |scene|
   {
@@ -139,7 +160,11 @@ pub fn main(init: std.process.Init) !void
     //const frameTime: f64 =
     //  @floatFromInt(frameStart.durationTo(newFrame).toMicroseconds());
     //frameStart = newFrame;
-    //log.info("FPS: {} ({})\n", .{std.time.us_per_s / frameTime, frameTime});
+    //log.info(
+    //  "FPS: {} ({}s)\n",
+    //  .{std.time.us_per_s / frameTime, frameTime / std.time.us_per_s}
+    //);
+
 
     var componentIt = ecs.componentTable.iterator();
     while (componentIt.next()) |component|

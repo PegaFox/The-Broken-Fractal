@@ -36,18 +36,7 @@ function init(self)
   --defer ecs.getPtr(
   --  Level.objects.items[0].id, "sight", Sight
   --).?.view.deinit(init.gpa);
-  self.objects:add(
-    {"base", "player"},
-    {
-      pos = {0, 0},
-      sight = {radius = 15},
-      memory = {},
-      energy = {value = 100, rate = -1},
-      food = {value = 100, rate = -1},
-      fluid = {value = 100, rate = -1},
-      sanity = {value = 100, rate = -1},
-    }
-  )
+
   -- Oh, no! It's not lore accurate!
   self.objects:add(
     {"base", "smiler"},
@@ -69,12 +58,15 @@ end
 
 local function removeExtraTiles(self)
   self.tiles.max = 400
+
+  local player = fractal.mods.base.player
+
   for k, _ in self.tiles:iterate() do
     if self.tiles:count() <= self.tiles.max then
       break
     end
 
-    if not self.objects:get(0).sight:inView(k) then
+    if not player.sight:inView(k) then
       print("Remove tile { ", k[1], ", ", k[2], " }")
       self.tiles:remove(k)
       -- May need to resync iterator at this point
@@ -107,6 +99,8 @@ function update(self)
 end
 
 function generateTile(self, pos)
+  --return fractal.mods.base.levels.level1:generateTile(pos)
+
   local result = nil
   if pos[1]%2 == 1 and pos[2]%2 == 1 then
     result = {"base", "cyanideCarpet"}

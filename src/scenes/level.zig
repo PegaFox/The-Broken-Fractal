@@ -34,6 +34,9 @@ pub var gpa: Allocator = undefined;
 //const maxObjects = 16;
 pub var objects = std.ArrayList(Object).empty;
 
+pub var sightToDraw = std.ArrayList(ECS.Entity.Unmanaged).empty;
+pub var memoryToDraw = std.ArrayList(ECS.Entity.Unmanaged).empty;
+
 //id: ID,
 name: []const u8,
 
@@ -160,6 +163,7 @@ pub const interface = Scene{
       var luaSuccess = false;
       if (Mod.luaEnv) |lua|
       luaFail:{
+
         const top = lua.getTop();
         defer lua.setTop(top);
 
@@ -201,36 +205,39 @@ pub const interface = Scene{
       //_ = nc.mvaddnstr(1, 40, &std.fmt.bytesToHex(std.mem.toBytes(@as(u8, @intCast(this.camPos[0]))), .upper), 2);
       //_ = nc.mvaddnstr(1, 43, &std.fmt.bytesToHex(std.mem.toBytes(@as(u8, @intCast(this.camPos[1]))), .upper), 2);
 
-      const playerSight =
-        mainspace.ecs.getPtr(objects.items[0].id, "sight", Sight).?;
-      playerSight.getView(objects.items[0].id, level) catch unreachable;
-
-      const playerMemory = mainspace.ecs.getPtr(
-        objects.items[0].id, "tileMemory", TileMemory
-      ).?;
-
-      //_ = nc.init_color(1, 1000, 1000, 1000);
-      //_ = nc.init_color(2, 0, 0, 0);
-      //_ = nc.init_color(3, 250, 250, 250);
-      //_ = nc.init_pair(1, 1, 2);
-      //_ = nc.init_pair(2, 3, 2);
-
-      for (playerMemory.tiles.keys()) |pos|
+      for (sightToDraw.items) |entity|
       {
-        if (level.inView(pos))
-        {
-          if (mainspace.ecs.getComponent(
-            objects.items[0].id, "sight", Sight).?.inView(pos))
-          {
-            try graphics.setDrawColor(@splat(1.0), @splat(0.0));
-          } else
-          {
-            try graphics.setDrawColor(@splat(0.25), @splat(0.0));
-          }
+        const sight =
+          mainspace.ecs.getPtr(entity, "sight", Sight).?;
+        sight.getView(entity, level) catch unreachable;
+      }
+      sightToDraw.clearRetainingCapacity();
 
-          try tile.render(playerMemory.tiles, pos, level.camPos);
+      for (memoryToDraw.items) |entity|
+      {
+        const memory = mainspace.ecs.getPtr(
+          entity, "tileMemory", TileMemory
+        ).?;
+        log.debug("Memory size: {}\n", .{memory.tiles.count()});
+
+        for (memory.tiles.keys()) |pos|
+        {
+          if (level.inView(pos))
+          {
+            if (mainspace.ecs.getComponent(
+              entity, "sight", Sight).?.inView(pos))
+            {
+              try graphics.setDrawColor(@splat(1.0), @splat(0.0));
+            } else
+            {
+              try graphics.setDrawColor(@splat(0.25), @splat(0.0));
+            }
+
+            try tile.render(memory.tiles, pos, level.camPos);
+          }
         }
       }
+      memoryToDraw.clearRetainingCapacity();
 
       try graphics.setDrawColor(@splat(1.0), @splat(0.0));
 

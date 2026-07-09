@@ -23,7 +23,7 @@ end
 
 function generateTile(self, pos)
   local result = nil
-  if pos[1]%20 < 10 and pos[2]%20 < 10 then
+  if pos[1]%200 < 199 and pos[2]%2 < 1 then
     result = {"concreteWall"}
   else
     result = {"concreteFloor"}

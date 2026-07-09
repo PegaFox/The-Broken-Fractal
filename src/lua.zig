@@ -74,6 +74,11 @@ pub fn init(allocator: Allocator) Allocator.Error!*lua.Lua
   state.pushFunction(luaInput);
   state.setField(-2, "input");
 
+  state.createTable(1, 0);
+
+  state.pushFunction(lua.wrap(luaTiming.start));
+  state.setField(-2, "start");
+  state.setField(-2, "timing");
   state.setGlobal("fractal");
 
   return state;
@@ -284,6 +289,37 @@ fn luaInputInner(state: *lua.Lua) !i32
   return 1;
 }
 
+pub const luaTiming = struct
+{
+  startTime: i64,
+
+  pub fn start(state: *lua.Lua) i32
+  {
+    state.createTable(2, 0);
+
+    const nanoseconds =
+      std.Io.Timestamp.now(mainspace.io, .awake).toNanoseconds();
+    state.pushInteger(@truncate(nanoseconds));
+    state.setField(-2, "startTime");
+
+    state.pushFunction(
+      toApiFunction("timing:stop", stop, .{}) catch unreachable
+    );
+    state.setField(-2, "stop");
+
+    return 1;
+  }
+
+  pub fn stop(self: @This()) f64
+  {
+    const startTime = std.Io.Timestamp.fromNanoseconds(self.startTime);
+    const durationNs: f64 =
+      @floatFromInt(startTime.untilNow(mainspace.io, .awake).toNanoseconds());
+
+    return durationNs / std.time.ns_per_s;
+  }
+};
+
 pub const luaTile = struct
 {
   /// self.tiles:get(pos) => {"mod", "name"}
@@ -353,6 +389,7 @@ pub const luaTile = struct
   
   /// self.tiles:iterate() => iterator
   /// Used with for loops to iterate over a level's tiles
+  /// The key returned by the iterator is invalidated each loop. keys must be deep copied for long storage
   pub const iterate = lua.wrap(iterateInner);
   
   fn iterateInner(state: *lua.Lua) i32
@@ -367,6 +404,8 @@ pub const luaTile = struct
     state.pushValue(1);
     // Store current index as closure
     state.pushInteger(0);
+    // Reuse key table for performance
+    state.createTable(2, 0);
     state.pushClosure(lua.wrap(
       struct {fn nextTile(self: *lua.Lua) c_int
         //error{NotANamespace, NotALevel}!
@@ -384,19 +423,26 @@ pub const luaTile = struct
   
         if (index < tiles.count())
         {
+          const kv = tiles.entries.get(@intCast(index));
+
           // The catch unreachable here may be incorrect if the key type is changed, so we assert the type here
           std.debug.assert(
-            @TypeOf(tiles.keys()[@intCast(index)]) == Level.Coord
+            @TypeOf(kv.key) == Level.Coord
           );
 
-          self.pushAny(tiles.keys()[@intCast(index)]) catch unreachable;
-          self.pushInteger(tiles.values()[@intCast(index)]);
+          self.pushValue(lua.Lua.upvalueIndex(3));
+          self.pushInteger(kv.key[0]);
+          self.setIndex(-2, 1);
+          self.pushInteger(kv.key[1]);
+          self.setIndex(-2, 2);
+          //self.pushAny(tiles.keys()[@intCast(index)]) catch unreachable;
+          self.pushInteger(kv.value);
           return 2;
         } else 
         {
           return 0;
         }
-      }}.nextTile), 2);
+      }}.nextTile), 3);
   
     return 1;
   }
@@ -537,75 +583,258 @@ pub const luaObject = struct
     state.pushInteger(object.id);
     state.setField(objectTableIdx, "id");
   
-    if (ecs.get(object.id, "objectType", Object.Type)) |@"type"|
+    var it = ecs.componentTable.iterator();
+    while (it.next()) |arr|
     {
-      state.pushInteger(@"type");
-      state.setField(objectTableIdx, "type");
-
-      std.debug.assert(state.getGlobal("fractal") catch unreachable == .table);
-      std.debug.assert(state.getField(-1, "mods") == .table);
-      _ = state.pushString(Mod.findObjectMod(@"type").name);
-      std.debug.assert(state.getTable(-2) == .table);
-
-      state.setField(objectTableIdx, "mod");
-    }
-
-    if (ecs.get(object.id, "pos", Level.Coord)) |_|
-    {
-      state.createTable(0, 3);
-      state.pushValue(objectTableIdx);
-      state.setField(-2, "parent");
-      state.pushFunction(toApiFunction(
-        "object.pos:get",
-        struct {fn get(
-          self: struct {parent: struct {id: ECS.Entity.Unmanaged}}) Level.Coord
-          {
-            return mainspace.ecs.get(self.parent.id, "pos", Level.Coord).?;
-          }}.get,
-        .{}
-      ) catch unreachable);
-      state.setField(-2, "get");
-      state.pushFunction(toApiFunction(
-        "object.pos:set",
-        struct {fn set(
-          self: struct {parent: struct {id: ECS.Entity.Unmanaged}},
-          newPos: Level.Coord) void
-          {
-            mainspace.ecs.getPtr(self.parent.id, "pos", Level.Coord).?.* =
-              newPos;
-          }}.set,
-        .{}
-      ) catch unreachable);
-      state.setField(-2, "set");
-      state.setField(objectTableIdx, "pos");
-    }
-
-    if (ecs.get(object.id, "sight", Sight)) |_|
-    {
-      state.createTable(0, 1);
-  
-      state.pushValue(objectTableIdx);
-      state.pushClosure(toApiFunction(
-        "object.sight.inView",
-        struct {fn inView(self: *lua.Lua, pos: Level.Coord) !bool
+      switch (std.hash_map.hashString(arr.value_ptr.typeID))
+      {
+        std.hash_map.hashString(@typeName(Object.Type)) =>
         {
-          std.debug.assert(
-            self.getField(lua.Lua.upvalueIndex(1), "id") == .number
-          );
-          const objectId: ECS.Entity.Managed = .{
-            .parent = &mainspace.ecs,
-            .id = @intCast(try self.toInteger(-1)),
-          };
+          if (ecs.get(object.id, arr.key_ptr.*, Object.Type)) |@"type"|
+          {
+            _ = state.pushString(arr.key_ptr.*);
+            state.pushInteger(@"type");
+            state.setTable(objectTableIdx);
+
+            std.debug.assert(
+              state.getGlobal("fractal") catch unreachable == .table
+            );
+            std.debug.assert(state.getField(-1, "mods") == .table);
+            _ = state.pushString(Mod.findObjectMod(@"type").name);
+            std.debug.assert(state.getTable(-2) == .table);
+
+            state.setField(objectTableIdx, "mod");
+          }
+        },
+        std.hash_map.hashString(@typeName(Level.Coord)) =>
+        {
+          if (ecs.get(object.id, arr.key_ptr.*, Level.Coord) == null)
+          {
+            break;
+          }
+
+          state.createTable(0, 3);
+          state.pushValue(objectTableIdx);
+          state.setField(-2, "parent");
+          state.pushFunction(toApiFunction(
+            "object.pos:get",
+            struct {fn get(
+              self: struct {parent: struct {id: ECS.Entity.Unmanaged}})
+                Level.Coord
+              {
+                return mainspace.ecs.get(self.parent.id, "pos", Level.Coord).?;
+              }}.get,
+            .{}
+          ) catch unreachable);
+          state.setField(-2, "get");
+          state.pushFunction(toApiFunction(
+            "object.pos:set",
+            struct {fn set(
+              self: struct {parent: struct {id: ECS.Entity.Unmanaged}},
+              newPos: Level.Coord) void
+              {
+                mainspace.ecs.getPtr(self.parent.id, "pos", Level.Coord).?.* =
+                  newPos;
+              }}.set,
+            .{}
+          ) catch unreachable);
+          state.setField(-2, "set");
+          state.setField(objectTableIdx, "pos");
+        },
+        std.hash_map.hashString(@typeName(Sight)) =>
+        {
+          if (ecs.get(object.id, arr.key_ptr.*, Sight) == null)
+          {
+            break;
+          }
+
+          state.createTable(0, 1);
   
-          const sight = objectId.get("sight", Sight) orelse
-            return error.InvalidComponent;
+          state.pushValue(objectTableIdx);
+          state.pushClosure(toApiFunction(
+            "object.sight.inView",
+            struct {fn inView(self: *lua.Lua, pos: Level.Coord) !bool
+            {
+              std.debug.assert(
+                self.getField(lua.Lua.upvalueIndex(1), "id") == .number
+              );
+              const objectId: ECS.Entity.Managed = .{
+                .parent = &mainspace.ecs,
+                .id = @intCast(try self.toInteger(-1)),
+              };
   
-          return sight.inView(pos);
-        }}.inView, .{}
-      ) catch unreachable, 1);
-      
-      state.setField(-2, "inView");
-      state.setField(objectTableIdx, "sight");
+              const sight = objectId.get("sight", Sight) orelse
+                return error.InvalidComponent;
+  
+              return sight.inView(pos);
+            }}.inView, .{}
+          ) catch unreachable, 1);
+          state.setField(-2, "inView");
+
+          state.pushValue(objectTableIdx);
+          state.pushClosure(toApiFunction(
+            "object.sight.draw",
+            struct {fn draw(self: *lua.Lua) !void
+            {
+              std.debug.assert(
+                self.getField(lua.Lua.upvalueIndex(1), "id") == .number
+              );
+
+              const objectId: ECS.Entity.Managed = .{
+                .parent = &mainspace.ecs,
+                .id = @intCast(try self.toInteger(-1)),
+              };
+  
+              if (objectId.get("sight", Sight) == null)
+              {
+                return error.InvalidComponent;
+              }
+
+              try Level.sightToDraw.append(Level.gpa, objectId.id);
+  
+              return;
+            }}.draw, .{}
+          ) catch unreachable, 1);
+          state.setField(-2, "draw");
+
+          state.setField(objectTableIdx, "sight");
+        },
+        std.hash_map.hashString(@typeName(TileMemory)) =>
+        {
+          if (ecs.get(object.id, arr.key_ptr.*, TileMemory) == null)
+          {
+            break;
+          }
+
+          state.createTable(0, 1);
+  
+          state.pushValue(objectTableIdx);
+          state.pushClosure(toApiFunction(
+            "object.memory.draw",
+            struct {fn draw(self: *lua.Lua) !void
+            {
+              std.debug.assert(
+                self.getField(lua.Lua.upvalueIndex(1), "id") == .number
+              );
+
+              const objectId: ECS.Entity.Managed = .{
+                .parent = &mainspace.ecs,
+                .id = @intCast(try self.toInteger(-1)),
+              };
+  
+              if (objectId.get("tileMemory", TileMemory) == null)
+              {
+                return error.InvalidComponent;
+              }
+
+              try Level.memoryToDraw.append(Level.gpa, objectId.id);
+  
+              return;
+            }}.draw, .{}
+          ) catch unreachable, 1);
+          state.setField(-2, "draw");
+
+          state.setField(objectTableIdx, "memory");
+        },
+        std.hash_map.hashString(@typeName(Overtime)) =>
+        {
+          if (ecs.get(object.id, arr.key_ptr.*, Overtime) == null)
+          {
+            break;
+          }
+
+          _ = state.pushString(arr.key_ptr.*);
+          const componentNameIdx = state.getTop();
+
+          state.createTable(2, 0);
+
+          state.createTable(2, 0);
+
+          state.pushInteger(object.id);
+          state.pushValue(componentNameIdx);
+          state.pushClosure(toApiFunction(
+            "overtime.value.get",
+            struct {fn get(self: *lua.Lua) u32 {
+              const objectId: ECS.Entity.Unmanaged = @intCast(
+                self.toInteger(lua.Lua.upvalueIndex(1)) catch unreachable);
+              const componentName =
+                self.toString(lua.Lua.upvalueIndex(2)) catch unreachable;
+
+              const component =
+                mainspace.ecs.getPtr(objectId, componentName, Overtime).?;
+              
+              return component.valuePtr().*;
+          }}.get,
+          .{}) catch unreachable, 2);
+          state.setField(-2, "get");
+
+          state.pushInteger(object.id);
+          state.pushValue(componentNameIdx);
+          state.pushClosure(toApiFunction(
+            "overtime.value.set",
+            struct {fn set(self: *lua.Lua, value: u32) void {
+              const objectId: ECS.Entity.Unmanaged = @intCast(
+                self.toInteger(lua.Lua.upvalueIndex(1)) catch unreachable);
+              const componentName =
+                self.toString(lua.Lua.upvalueIndex(2)) catch unreachable;
+
+              const component =
+                mainspace.ecs.getPtr(objectId, componentName, Overtime).?;
+              
+              component.valuePtr().* = value;
+          }}.set,
+          .{}) catch unreachable, 2);
+          state.setField(-2, "set");
+
+          state.setField(-2, "value");
+
+          state.createTable(2, 0);
+
+          state.pushInteger(object.id);
+          state.pushValue(componentNameIdx);
+          state.pushClosure(toApiFunction(
+            "overtime.value.get",
+            struct {fn get(self: *lua.Lua) u32 {
+              const objectId: ECS.Entity.Unmanaged = @intCast(
+                self.toInteger(lua.Lua.upvalueIndex(1)) catch unreachable);
+              const componentName =
+                self.toString(lua.Lua.upvalueIndex(2)) catch unreachable;
+
+              const component =
+                mainspace.ecs.getPtr(objectId, componentName, Overtime).?;
+              
+              return component.valuePtr().*;
+          }}.get,
+          .{}) catch unreachable, 2);
+          state.setField(-2, "get");
+
+          state.pushInteger(object.id);
+          state.pushValue(componentNameIdx);
+          state.pushClosure(toApiFunction(
+            "overtime.value.set",
+            struct {fn set(self: *lua.Lua, value: u32) void {
+              const objectId: ECS.Entity.Unmanaged = @intCast(
+                self.toInteger(lua.Lua.upvalueIndex(1)) catch unreachable);
+              const componentName =
+                self.toString(lua.Lua.upvalueIndex(2)) catch unreachable;
+
+              const component =
+                mainspace.ecs.getPtr(objectId, componentName, Overtime).?;
+              
+              component.valuePtr().* = value;
+          }}.set,
+          .{}) catch unreachable, 2);
+          state.setField(-2, "set");
+
+          state.setField(-2, "change");
+
+          state.setTable(objectTableIdx);
+        },
+        else => log.warn(
+          "unknown component \"{s}\", consider adding a translation case\n",
+          .{arr.key_ptr.*}
+        ),
+      }
     }
 
     state.setTop(objectTableIdx);
@@ -701,7 +930,7 @@ pub const luaObject = struct
               .value =
                 @truncate(@max(0, state.toInteger(-2) catch unreachable))
             },
-            .moveRate = @truncate(state.toInteger(-1) catch -1),
+            .delta = @truncate(state.toInteger(-1) catch -1),
           }
         );
       }
@@ -829,14 +1058,6 @@ fn toApiFunction(
 
   return lua.wrap(struct {fn apiFn(self: *lua.Lua) i32
   {
-    if (self.getTop() < fnSig.params.len)
-    {
-      self.raiseErrorStr(
-        "%s expected %I arguments, got %I",
-        .{name.ptr, fnSig.params.len, self.getTop()}
-      );
-    }
-
     const Args = comptime blk: {
       // We take these by reference in the @Struct() directive, but then leave this stack frame. I think it should be okay because we only need the struct type
       //var argNames: [fnSig.params.len][]const u8 = undefined;
@@ -852,6 +1073,7 @@ fn toApiFunction(
     var args: Args =
       undefined;
 
+    var trueArgCount: u32 = 0;
     inline for (1.., &args) |i, *arg|
     {
       // Give special access to lua environment
@@ -860,6 +1082,7 @@ fn toApiFunction(
         arg.* = self;
         continue;
       }
+      trueArgCount += 1;
 
       arg.* = self.toAny(@TypeOf(arg.*), i) catch |e|
       blk:{
@@ -875,6 +1098,14 @@ fn toApiFunction(
           break:blk std.mem.zeroes(@TypeOf(arg.*));
         }
       };
+    }
+
+    if (self.getTop() < trueArgCount)
+    {
+      self.raiseErrorStr(
+        "%s expected %I arguments, got %I",
+        .{name.ptr, fnSig.params.len, self.getTop()}
+      );
     }
 
     if (fnSig.return_type) |ret|

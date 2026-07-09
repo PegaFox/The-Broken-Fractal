@@ -107,10 +107,11 @@
 - Run game fully until stopping at input request (done)
 - Add mod integration for objects (done)
 - Add time system (done)
-- Add small chance of levels 1 or 2
-- Remove currentLevel, instead use the level coordinate of player
+- Fix lag that appears after playing for ~30 turns (done)
+- Optimize view system to only regenerate after nearby world change or entity movement
 - Move spawn level logic to base mod (set player position to level on mod init)
 - Implement better save/load system
+- Add server software for saving certain user changes
 - Add developer console
 - Add modding utils
 - Add structure generation
@@ -122,4 +123,7 @@
 - Add lighting system
 - Add dynamic color approximation
 - Add item durability/wear-and-tear
+- Add starting loadouts
+- Add small chance of levels 1 or 2
+- Remove currentLevel, instead use the level coordinate of player
 
