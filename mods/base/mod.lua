@@ -20,14 +20,25 @@ function init(self)
       pos = {0, 0},
       sight = {radius = 15},
       memory = {},
-      energy = {value = 100, rate = -1},
-      food = {value = 100, rate = -1},
-      fluid = {value = 100, rate = -1},
+      inventory = {capacity = 5, items = {}},
+      energy = {value = 60 * 60 * 16, rate = -1},
+      stamina = {value = 60 * 20, rate = 0},
+      food = {value = 60 * 60 * 12, rate = -1},
+      fluid = {value = 60 * 60 * 4, rate = -1},
       sanity = {value = 100, rate = -1},
     }
   )
 
-  fractal.mods.base.player = self.levels.level0.objects.get(0)
+  self.player = self.levels.level0.objects.get(0)
+
+  self.levels.level0.objects:add(
+    {"base", "backpack"},
+    {
+      inventory = {capacity = 5, items = {}},
+    }
+  )
+  local backpack = self.levels.level0.objects.get(1)
+  self.player.inventory[0] = backpack
 end
 
 function update(self)

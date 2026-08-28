@@ -13,6 +13,10 @@ pub fn build(b: *std.Build) void
     .optimize = optimize
   });
 
+  const sdlTTF = b.dependency("SDL_ttf", .{
+    .target = target,
+    .optimize = optimize
+  });
   const sdlImage = b.dependency("SDL_image", .{
     .target = target,
     .optimize = optimize
@@ -34,35 +38,49 @@ pub fn build(b: *std.Build) void
   //const luaLib =
   //  lua.artifact(if (target.result.os.tag == .windows) "lua54" else "lua");
 
-  // We will also create a module for our other entry point, 'main.zig'.
-  const exe_mod = b.createModule(.{
-    // `root_source_file` is the Zig "entry point" of the module. If a module
-    // only contains e.g. external object files, you can make this `null`.
-    // In this case the main source file is merely a path, however, in more
-    // complicated build scripts, this could be a generated file.
-    .root_source_file = b.path("src/main.zig"),
+  const importFiles = b.addWriteFiles();
+
+  const cImport = b.addTranslateC(.{
+    .root_source_file = importFiles.add("c.h",
+      \\#include <locale.h>
+    ),
     .target = target,
     .optimize = optimize,
-    .link_libc = true,
-    .imports = &.{
-      .{.name = "ecs", .module = ecs_lib.module("ecs-lib")},
-    },
   });
-
-  exe_mod.linkSystemLibrary("ncurses", .{});
-  exe_mod.addImport("zlua", lua_dep.module("zlua"));
-  //exe_mod.linkLibrary(luaLib);
-  exe_mod.linkLibrary(sdl.artifact("SDL3"));
-  exe_mod.linkLibrary(sdlImage.artifact("SDL3_image"));
-  //exe_mod.addIncludePath(lua.path("src"));
-  exe_mod.addIncludePath(sdl.path("include"));
-  exe_mod.addIncludePath(sdlImage.path("include"));
+  const ncImport = b.addTranslateC(.{
+    .root_source_file = importFiles.add("ncurses.h",
+      \\#define _XOPEN_SOURCE_EXTENDED
+      \\#include <ncurses.h>
+    ),
+    .target = target,
+    .optimize = optimize,
+  });
+  const sdlImport = b.addTranslateC(.{
+    .root_source_file = importFiles.add("sdl.h",
+      \\#include <SDL3/SDL.h>
+      \\#include <SDL3_image/SDL_image.h>
+      \\#include <SDL3_ttf/SDL_ttf.h>
+    ),
+    .target = target,
+    .optimize = optimize,
+  });
 
   // This creates another `std.Build.Step.Compile`, but this one builds an executable
   // rather than a static library.
   const exe = b.addExecutable(.{
     .name = "fractal",
-    .root_module = exe_mod,
+    .root_module = b.createModule(.{
+      .root_source_file = b.path("src/main.zig"),
+      .target = target,
+      .optimize = optimize,
+      .link_libc = true,
+      .imports = &.{
+        .{.name = "ecs", .module = ecs_lib.module("ecs-lib")},
+        .{.name = "c", .module = cImport.createModule()},
+        .{.name = "ncurses", .module = ncImport.createModule()},
+        .{.name = "sdl", .module = sdlImport.createModule()},
+      },
+    }),
     .use_llvm = true,
   });
   if (
@@ -72,6 +90,17 @@ pub fn build(b: *std.Build) void
   {
     @compileLog("Zig version is not 0.16.0, remove use_llvm exe option");
   }
+
+  exe.root_module.linkSystemLibrary("ncursesw", .{});
+  exe.root_module.addImport("zlua", lua_dep.module("zlua"));
+  //exe.root_module.linkLibrary(luaLib);
+  exe.root_module.linkLibrary(sdl.artifact("SDL3"));
+  exe.root_module.linkLibrary(sdlImage.artifact("SDL3_image"));
+  exe.root_module.linkLibrary(sdlTTF.artifact("SDL3_ttf"));
+  //exe.root_module.addIncludePath(lua.path("src"));
+  exe.root_module.addIncludePath(sdl.path("include"));
+  exe.root_module.addIncludePath(sdlImage.path("include"));
+  exe.root_module.addIncludePath(sdlTTF.path("include"));
 
   // This declares intent for the executable to be installed into the
   // standard location when the user invokes the "install" step (the default
@@ -108,7 +137,7 @@ pub fn build(b: *std.Build) void
   run_step.dependOn(&run_cmd.step);
 
   const exe_unit_tests = b.addTest(.{
-    .root_module = exe_mod,
+    .root_module = exe.root_module,
   });
 
   const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
@@ -124,7 +153,7 @@ pub fn build(b: *std.Build) void
   // we're binding it to a dedicated build step.
   const exe_check = b.addExecutable(.{
       .name = "fractal",
-      .root_module = exe_mod,
+      .root_module = exe.root_module,
   });
   // There is no `b.installArtifact(exe_check);` here.
   

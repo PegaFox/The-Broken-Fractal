@@ -10,14 +10,14 @@ const graphics = @import("../graphics.zig");
 const Mod = @import("../mod.zig");
 const luaUtil = @import("../lua.zig");
 const Turn = @import("../turn.zig");
-const tile = @import("../tile.zig");
+const Tile = @import("../tile.zig");
 const Object = @import("../object.zig");
 const ECS = @import("ecs");
 const Sight = @import("../sight.zig");
 const TileMemory = @import("../tile_memory.zig");
 const Player = @import("../player.zig");
 const mainspace = @import("../main.zig");
-const sdl = mainspace.sdl;
+const sdl = @import("sdl");
 
 pub const Coord = @Vector(2, i16);
 
@@ -27,7 +27,7 @@ pub const ID = std.math.IntFittingRange(0, 999);//enum
 //  Level1,
 //};
 
-pub const Tilemap: type = std.array_hash_map.Auto(Coord, ECS.Entity.Unmanaged);
+pub const Tilemap: type = std.array_hash_map.Auto(Coord, Tile);
 
 pub var gpa: Allocator = undefined;
 
@@ -38,9 +38,10 @@ pub var sightToDraw = std.ArrayList(ECS.Entity.Unmanaged).empty;
 pub var memoryToDraw = std.ArrayList(ECS.Entity.Unmanaged).empty;
 
 //id: ID,
-name: []const u8,
+name: [:0]const u8,
 
 camPos: Coord,
+/// Directly accessing this should be avoided if possible. Try getTile(pos) instead
 tiles: Tilemap = .empty,
 
 //objects: [maxObjects]ECS.Entity.Unmanaged = undefined,
@@ -128,9 +129,9 @@ pub const interface = Scene{
           sdl.SDLK_U, sdl.SDLK_PAGEUP => try Player.move(level, .{1, -1}),
           sdl.SDLK_L, sdl.SDLK_RIGHT => try Player.move(level, .{1, 0}),
           sdl.SDLK_N, sdl.SDLK_PAGEDOWN => try Player.move(level, .{1, 1}),
-          sdl.SDLK_W, =>
-            if (inputEvent.key.mod & sdl.SDL_KMOD_SHIFT != 0)
-              try Player.write(level),
+          //sdl.SDLK_W, =>
+          //  if (inputEvent.key.mod & sdl.SDL_KMOD_SHIFT != 0)
+          //    try Player.write(level),
           sdl.SDLK_T =>
             currentLevel =
               @mod(currentLevel+1, @as(ID, @truncate(levels.items.len))),
@@ -155,11 +156,6 @@ pub const interface = Scene{
 
     .update = struct {fn update(self: *const Scene) !void
     {_ = self;
-      log.debug(
-        "{} time step(s) later. Current time = {}\n",
-        .{Turn.stepTime(&mainspace.ecs), Turn.present}
-      );
-
       var luaSuccess = false;
       if (Mod.luaEnv) |lua|
       luaFail:{
@@ -189,7 +185,7 @@ pub const interface = Scene{
       if (!luaSuccess)
       {
         _ = luaUtil.luaCamera.centerOnInner(
-          .{.parent = .{.handle = @ptrFromInt(currentLevel)}},
+          .{.parent = .{.handle = currentLevel}},
           .{.id = objects.items[0].id}
         ) catch unreachable;
       }
@@ -218,7 +214,7 @@ pub const interface = Scene{
         const memory = mainspace.ecs.getPtr(
           entity, "tileMemory", TileMemory
         ).?;
-        log.debug("Memory size: {}\n", .{memory.tiles.count()});
+        //log.debug("Memory size: {}\n", .{memory.tiles.count()});
 
         for (memory.tiles.keys()) |pos|
         {
@@ -233,7 +229,7 @@ pub const interface = Scene{
               try graphics.setDrawColor(@splat(0.25), @splat(0.0));
             }
 
-            try tile.render(memory.tiles, pos, level.camPos);
+            try Tile.draw(memory.tiles, pos, level.camPos);
           }
         }
       }
@@ -245,9 +241,9 @@ pub const interface = Scene{
       {
         if (Object.getStaticData(object)) |data|
         {
-          if (mainspace.ecs.getComponent(object.id, "pos", Coord)) |pos|
+          if (mainspace.ecs.getComponent(object.id, "pos", Object.Pos)) |pos|
           {
-            try graphics.drawCh(pos - level.camPos, data.ch);
+            try graphics.drawCh(pos.pos - level.camPos, data.ch);
           }
         } else |_| unreachable;
       }
@@ -269,9 +265,9 @@ pub const interface = Scene{
 };
 
 pub fn generateTile(self: *Self, pos: Coord)
-  Allocator.Error!ECS.Entity.Unmanaged
+  Allocator.Error!Tile
 {
-  var result: ECS.Entity.Unmanaged = 0;
+  var result: Tile = .{.type = 0, .id = 0};
 
   if (Mod.luaEnv) |lua|
   luaFail:{
@@ -295,8 +291,8 @@ pub fn generateTile(self: *Self, pos: Coord)
 
     if (!lua.isTable(-1)) break:luaFail;
 
-    result = mainspace.ecs.addEntity(.{
-      .tileType = tile.nameTypes.get(
+    result = .{
+      .type = Tile.nameTypes.get(
         switch (lua.lenRaiseErr(-1))
         {
           1 => id:{
@@ -318,16 +314,19 @@ pub fn generateTile(self: *Self, pos: Coord)
           },
           else => break:luaFail
         }
-      ) orelse break:luaFail
-    }).id;
+      ) orelse break:luaFail,
+
+      .id = mainspace.ecs.addEntity(.{}).id
+    };
   }
 
   // If lua function failed, generate default tile
-  if (result == 0)
+  if (result.id == 0)
   {
-    result = mainspace.ecs.addEntity(.{
-      .tileType = @as(tile.Type, 0),
-    }).id;
+    result = .{
+      .type = @as(Tile.Type, 0),
+      .id = mainspace.ecs.addEntity(.{}).id
+    };
   }
 
   try self.tiles.put(gpa, pos, result);
@@ -341,7 +340,7 @@ pub fn generateTile(self: *Self, pos: Coord)
 //  return getCenterCameraOn(objects.items[0].id) catch unreachable;
 //}
 
-pub fn getTile(self: *Self, pos: Coord) Allocator.Error!ECS.Entity.Unmanaged
+pub fn getTile(self: *Self, pos: Coord) Allocator.Error!Tile
 {
   if (self.tiles.contains(pos))
   {

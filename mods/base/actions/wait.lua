@@ -1,6 +1,6 @@
-function queue(object)
+function queue(object, waitTime)
   return {
-    cost = 1,
+    cost = waitTime,
     make = function() end
   }
 end

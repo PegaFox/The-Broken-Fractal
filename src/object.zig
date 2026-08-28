@@ -1,11 +1,13 @@
 const Self = @This();
 
 const std = @import("std");
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 const json = std.json;
 const log = std.log;
 
 const lua = @import("zlua");
+const input = @import("input.zig");
 const graphics = @import("graphics.zig");
 const luaUtil = @import("lua.zig");
 const Mod = @import("mod.zig");
@@ -16,9 +18,12 @@ const mainspace = @import("main.zig");
 
 pub const StaticData = struct
 {
-  name: []const u8,
+  name: [:0]const u8,
   ch: u8,
   color: graphics.Color,
+
+  volume: ?f32,
+  mass: ?f32,
 
   /// source is a *json.Scanner or a *json.Reader
   pub fn jsonParse(
@@ -87,9 +92,16 @@ pub var nameTypes = std.HashMapUnmanaged(
 
 pub const Type = u16;
 
+pub const Pos = struct
+{
+  pos: Level.Coord,
+  
+  /// For multiple objects stacked on one tile
+  next: ECS.Entity.Unmanaged,
+};
+
+type: Type,
 id: ECS.Entity.Unmanaged,
-/// For multiple objects stacked on one tile
-node: std.SinglyLinkedList.Node = .{},
 
 pub fn init(objectType: Type, pos: Level.Coord, components: anytype) Self
 {
@@ -104,62 +116,86 @@ pub fn init(objectType: Type, pos: Level.Coord, components: anytype) Self
   return result;
 }
 
-pub fn getStaticData(object: Self) error{NoID, InvalidID}!StaticData
+pub fn getStaticData(object: Self) error{InvalidID}!StaticData
 {
-  const objectType: Type =
-    mainspace.ecs.get(object.id, "objectType", Type) orelse return error.NoID;
-
-  if (objectType > staticData.items.len) return error.InvalidID;
-  return staticData.items[objectType];
+  if (object.type > staticData.items.len) return error.InvalidID;
+  return staticData.items[object.type];
 }
 
-pub fn getAction(object: Self, ecs: *ECS) Turn
+var currentInput: ?[]const u8 = null;
+/// io parameter is used for getting inputs
+pub fn getAction(object: Self, ecs: *ECS) error{NoInput, LuaFail}!Turn
 {
-  const objectType =
-    ecs.get(object.id, "objectType", Type) orelse
-      return .{
-        .object = object,
-        .startTime = Turn.present,
-        .cost = 1,
-      };
+  const state = Mod.luaEnv orelse return error.LuaFail;
 
-  if (Mod.luaEnv) |state|
-  luaFail:{
-    const top = state.getTop();
-    defer state.setTop(top);
+  const top = state.getTop();
+  defer state.setTop(top);
 
-    if (state.getGlobal("fractal") catch break:luaFail != .table)
-      break:luaFail;
-    if (!state.getSubtable(-1, "mods")) break:luaFail;
-    _ = state.pushString(Mod.findObjectMod(objectType).name);
-    if (state.getTable(-2) != .table) break:luaFail;
-    if (!state.getSubtable(-1, "objects")) break:luaFail;
-    _ = state.pushString(staticData.items[objectType].name);
-    if (state.getTable(-2) != .table) break:luaFail;
-    if (state.getField(-1, "takeTurn") != .function) break:luaFail;
-    // Push 'this' argument
-    luaUtil.luaObject.generateLua(state, ecs, object);
-    luaUtil.runFunction(state, .{.args = 1, .results = 1}) catch
-      break:luaFail;
-    if (state.typeOf(-1) != .table) break:luaFail;
+  if ((state.getGlobal("fractal") catch return error.LuaFail) != .table)
+    return error.LuaFail;
+  if (!state.getSubtable(-1, "mods")) return error.LuaFail;
+  _ = state.pushString(Mod.findObjectMod(object.type).name);
+  if (state.getTable(-2) != .table) return error.LuaFail;
+  if (!state.getSubtable(-1, "objects")) return error.LuaFail;
+  _ = state.pushString(staticData.items[object.type].name);
+  if (state.getTable(-2) != .table) return error.LuaFail;
+  if (state.getField(-1, "takeTurn") != .function) return error.LuaFail;
 
-    std.debug.assert(state.getField(lua.registry_index, "fractal") == .table);
-    std.debug.assert(state.getField(-1, "actions") == .table);
-    state.pushValue(-3);
-    state.setIndex(-2, object.id);
+  // Checks if the function has a parameter for input
+  const needsInput =
+  blk:{
+    state.pushValue(-1);
+    var functionInfo: lua.DebugInfo = undefined;
+    state.getInfo(.{.@">" = true, .u = true}, &functionInfo);
 
-    if (state.getField(-3, "cost") != .number) break:luaFail;
+    break:blk functionInfo.num_params == 2;
+  };
+  
+  // Push 'this' argument
+  luaUtil.luaObject.generateLua(state, ecs, object);
+  if (needsInput)
+  {
+    if (currentInput == null)
+    {
+      currentInput = (input.getInput() catch unreachable) orelse
+        return error.NoInput;
+    }
 
-    return .{
-      .object = object,
-      .startTime = Turn.present,
-      .cost = @intCast(state.toInteger(-1) catch unreachable),
-    };
+    state.createTable(0, 1);
+    state.pushFunction(luaUtil.toApiFunction("inputIs", struct {
+      fn inputIs(@"test": []const u8) bool
+      {
+        if (currentInput != null and std.mem.eql(u8, @"test", currentInput.?))
+        {
+          currentInput = null;
+
+          return true;
+        } else
+        {
+          return false;
+        }
+      }
+    }.inputIs, .{}));
+    state.setField(-2, "is");
   }
+
+  luaUtil.runFunction(state, .{
+    .args = if (needsInput) 2 else 1,
+    .results = 1
+  }) catch
+    return error.LuaFail;
+  if (state.typeOf(-1) != .table) return error.LuaFail;
+
+  std.debug.assert(state.getField(lua.registry_index, "fractal") == .table);
+  std.debug.assert(state.getField(-1, "actions") == .table);
+  state.pushValue(-3);
+  state.setIndex(-2, object.id);
+
+  if (state.getField(-3, "cost") != .number) return error.LuaFail;
 
   return .{
     .object = object,
     .startTime = Turn.present,
-    .cost = 1,
+    .cost = @intCast(state.toInteger(-1) catch unreachable),
   };
 }

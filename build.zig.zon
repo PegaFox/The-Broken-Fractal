@@ -40,6 +40,10 @@
             .url = "git+https://github.com/PegaFox/ecs-lib.git#63411b2608a472b5a89cc46a749b8a56af4a0099",
             .hash = "ecs_lib-0.2.0-BFwLtyFdAADYdS63yD4W_3J5CR3pKBkB7mXR24uoxc_h",
         },
+        .SDL_ttf = .{
+            .url = "git+https://github.com/allyourcodebase/SDL_ttf#754060bb24756f28545f56e9ef6ac0accf6045bb",
+            .hash = "SDL_ttf-3.2.3-2-PNW5xNYRAAAyzznhTTMh40QAzryQ5LlAZ7VM1-IR5p6C",
+        },
         .SDL_image = .{
             .url = "git+https://github.com/allyourcodebase/SDL_image.git#288bc44cba10e542a872912f62e22160e91bb6dc",
             .hash = "SDL_image-3.4.2--aJoHbkWAAA9Byk-voi8UuRvTFENE7UKtQUXs4fc_VSc",

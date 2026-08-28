@@ -1,28 +1,18 @@
--- The functions defined in this file are automatically namespaced, and as such are an exception to the no globals rule
+-- The functions and tables defined in this file are automatically namespaced, and as such are an exception to the no globals rule
 -- self is an alias for fractal.mods.modName.levels.levelName
-function init(self)
+init = {
+  name = "level0"
+}
+
+function deinit(self)
+
+end
+
+function enter(self)
   -- Remove extra tiles after this if possible
   self.tiles.max = 400
   
-  local used = {}
-  local display
-  display = function(used, table)
-    for key, value in pairs(table) do
-      if used[value] == nil then
-        used[value] = true
-        if type(value) == "table" then
-          print(key, " = ")
-          display(used, value)
-        else
-          print(key, " = ", value)
-        end
-      end
-    end
-  end
-
   print("Hello, Level 0!");
-  --display(used, self)
-
   --try Level.objects.append(init.gpa, .init(0, .{0, 0}, .{
   --  .sight = Sight{.radius = 15, .view = .empty},
   --  .tileMemory = TileMemory{.tiles = .empty},
@@ -42,13 +32,6 @@ function init(self)
     {"base", "smiler"},
     {pos = {30, 30}}
   )
-end
-
-function deinit(self)
-
-end
-
-function enter(self)
 
 end
 
@@ -75,7 +58,7 @@ local function removeExtraTiles(self)
 end
 
 function update(self)
-  self.camera:centerOn(self.objects:get(0))
+  self.camera:centerOn(fractal.mods.base.player)
 
   --local array = {1, 1, 2, 3, 5, 8, 13, 21}
   --local function iterator(array)
@@ -100,6 +83,7 @@ end
 
 function generateTile(self, pos)
   --return fractal.mods.base.levels.level1:generateTile(pos)
+  local originDis = math.sqrt(pos[1]*pos[1] + pos[2]*pos[2])
 
   local result = nil
   if pos[1]%2 == 1 and pos[2]%2 == 1 then
@@ -107,7 +91,9 @@ function generateTile(self, pos)
   elseif pos[1]%2 == 0 and pos[2]%2 == 0 then
     result = {"base", "yellowWallpaper"}
   else
-    if math.random(0, 3) == 0 then
+    if originDis > 4 and math.random(0, 3) == 0 then
+    --if math.random(0, math.max(3, 32-math.floor(originDis))) == 0 then
+    --if math.random(0, 3)) == 0 then
       result = {"base", "yellowWallpaper"}
     else
       result = {"base", "cyanideCarpet"}

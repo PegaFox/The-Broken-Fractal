@@ -644,7 +644,7 @@ fn loadObjects(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
         continue;
       }
 
-      if (!std.mem.eql(u8, path.extension(entry.basename), ".json"))
+      if (!std.mem.eql(u8, path.extension(entry.basename), ".lua"))
       {
         continue;
       }
@@ -652,56 +652,76 @@ fn loadObjects(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
       const objectFile = objectDir.openFile(io, entry.path, .{}) catch continue;
       defer objectFile.close(io);
 
-      const objectInfo =
-        try jsonFromFile(Object.StaticData, io, allocator, objectFile);
-      defer objectInfo.deinit();
-
-      log.info("Loading object {s}\n", .{objectInfo.value.name});
-
-      try Object.staticData.append(allocator, .{
-        .name = try allocator.dupe(u8, objectInfo.value.name),
-        .ch = objectInfo.value.ch,
-        .color = objectInfo.value.color,
-      });
-      try Object.nameTypes.putNoClobber(
-        allocator,
-        .{.mod = mods.getLast().name, .name = Object.staticData.getLast().name},
-        @intCast(Object.staticData.items.len-1)
+      const name = try std.mem.concatWithSentinel(
+        allocator, u8, &.{mods.getLast().name, ".", entry.path[0..entry.path.len-3]}, 0
       );
+      defer allocator.free(name);
 
-      const data = Object.staticData.getLast();
-      _ = luaEnv.?.pushString(data.name);
-      try luaEnv.?.pushAny(
-        struct
-        {
-          color: struct {r: f32, g: f32, b: f32},
-          ch: []const u8
-        }{
-          .color = .{
-            .r = data.color[0],
-            .g = data.color[1],
-            .b = data.color[2]
-          },
-          .ch = (&tile.staticData.getLast().ch)[0..1],
-        }
-      );
+      try luaUtil.runFile(luaEnv.?, io, objectFile, name);
 
-      // Copy mod table reference
-      luaEnv.?.pushValue(-4);
-      luaEnv.?.setField(-2, "mod");
-
-      const luaFilePath = try std.mem.concat(
-        allocator, u8, &.{entry.path[0..entry.path.len-4], "lua"}
-      );
-      defer allocator.free(luaFilePath);
-      if (objectDir.openFile(io, luaFilePath, .{})) |luaFile|
+      if (luaEnv.?.getGlobal("init")) |_|
       {
-        const name = try std.mem.concatWithSentinel(
-          allocator, u8, &.{mods.getLast().name, ".", objectInfo.value.name}, 0
-        );
-        defer allocator.free(name);
+        luaEnv.?.pushNil();
+        luaEnv.?.setGlobal("init");
 
-        try luaUtil.runFile(luaEnv.?, io, luaFile, name);
+        // If init is a function, take the return value. Otherwise, simply use the init value itself
+        if (luaEnv.?.typeOf(-1) == .function)
+        {
+          try luaUtil.runFunction(luaEnv.?, .{.results = 1});
+        }
+        //_ = luaUtil.luaPrint(luaEnv.?);
+
+        const Data = struct
+        {
+          name: [:0]const u8,
+          ch: []const u8,
+          color: struct {r: f32, g: f32, b: f32},
+          volume: f32,
+          mass: f32,
+        };
+        const objectInfo = luaEnv.?.toAny(Data, -1) catch unreachable;
+        //const objectInfo =
+        //  try jsonFromFile(Object.StaticData, io, allocator, objectFile);
+        //defer objectInfo.deinit();
+
+        log.info("Loading object {s}\n", .{objectInfo.name});
+
+        try Object.staticData.append(allocator, .{
+          .name = try allocator.dupeSentinel(u8, objectInfo.name, 0),
+          .ch = objectInfo.ch[0],
+          .color = .{
+            objectInfo.color.r, objectInfo.color.g, objectInfo.color.b
+          },
+          .volume = objectInfo.volume,
+          .mass = objectInfo.mass,
+        });
+        try Object.nameTypes.putNoClobber(
+          allocator,
+          .{
+            .mod = mods.getLast().name,
+            .name = Object.staticData.getLast().name
+          },
+          @intCast(Object.staticData.items.len-1)
+        );
+
+        //try luaEnv.?.pushAny(
+        //  struct
+        //  {
+        //    color: struct {r: f32, g: f32, b: f32},
+        //    ch: []const u8
+        //  }{
+        //    .color = .{
+        //      .r = data.color[0],
+        //      .g = data.color[1],
+        //      .b = data.color[2]
+        //    },
+        //    .ch = (&tile.staticData.getLast().ch)[0..1],
+        //  }
+        //);
+
+        // Copy mod table reference
+        luaEnv.?.pushValue(-4);
+        luaEnv.?.setField(-2, "mod");
 
         inline for (.{
           "takeTurn",
@@ -721,18 +741,19 @@ fn loadObjects(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
 
             log.warn(
               "No " ++ functionName ++ " function found for object {s}: {}, skipping\n",
-              .{objectInfo.value.name, e}
+              .{objectInfo.name, e}
             );
           }
         }
-      } else |e|
+
+        luaEnv.?.setField(-2, objectInfo.name);
+      } else |_|
       {
         log.warn(
-          "No lua file found for object {s}: {}, skipping\n",
-          .{objectInfo.value.name, e}
+          "No init function found in {s}, skipping\n",
+          .{name}
         );
       }
-      luaEnv.?.setTable(-3);
     }
   } else |e|
   {
@@ -758,56 +779,63 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
         continue;
       }
 
-      if (!std.mem.eql(u8, path.extension(entry.basename), ".json"))
+      if (!std.mem.eql(u8, path.extension(entry.basename), ".lua"))
       {
         continue;
       }
 
-      const infoFile =
-        levelDir.openFile(io, entry.path, .{}) catch continue;
-      defer infoFile.close(io);
+      const levelFile = levelDir.openFile(io, entry.path, .{}) catch continue;
+      defer levelFile.close(io);
 
-      const levelInfo = try jsonFromFile(
-        struct {name: []const u8}, io, allocator, infoFile
+      const name = try std.mem.concatWithSentinel(
+        allocator, u8, &.{mods.getLast().name, ".", entry.path[0..entry.path.len-3]}, 0
       );
-      defer levelInfo.deinit();
+      defer allocator.free(name);
 
-      log.info("Loading level {s}\n", .{levelInfo.value.name});
+      try luaUtil.runFile(luaEnv.?, io, levelFile, name);
 
-      try Level.levels.append(allocator, .{
-        .name = try allocator.dupe(u8, levelInfo.value.name),
-        .camPos = @splat(0),
-        .tiles = .empty,
-      });
-      try Level.nameIDs.putNoClobber(
-        allocator,
-        .{
-          .mod = mods.getLast().name,
-          .name = Level.levels.getLast().name
-        },
-        @intCast(tile.staticData.items.len-1)
-      );
-
-      const luaFilePath = try std.mem.concat(
-        allocator, u8, &.{entry.path[0..entry.path.len-4], "lua"}
-      );
-      defer allocator.free(luaFilePath);
-      if (levelDir.openFile(io, luaFilePath, .{})) |luaFile|
+      if (luaEnv.?.getGlobal("init")) |_|
       {
-        const name = try std.mem.concatWithSentinel(
-          allocator, u8, &.{mods.getLast().name, ".", levelInfo.value.name}, 0
+        luaEnv.?.pushNil();
+        luaEnv.?.setGlobal("init");
+
+        // If init is a function, take the return value. Otherwise, simply use the init value itself
+        if (luaEnv.?.typeOf(-1) == .function)
+        {
+          try luaUtil.runFunction(luaEnv.?, .{.results = 1});
+        }
+
+        std.debug.assert(luaEnv.?.getField(-1, "name") == .string);
+        var levelName = luaEnv.?.toString(-1) catch unreachable;
+        //_ = luaUtil.luaPrint(luaEnv.?);
+
+        //const levelInfo = try jsonFromFile(
+        //  struct {name: []const u8}, io, allocator, infoFile
+        //);
+        //defer levelInfo.deinit();
+  
+        log.info(
+          "Loading level {s} with ID {}\n",
+          .{levelName, Level.levels.items.len});
+
+        try Level.levels.append(allocator, .{
+          .name = try allocator.dupeSentinel(u8, levelName, 0),
+          .camPos = @splat(0),
+          .tiles = .empty,
+        });
+        try Level.nameIDs.putNoClobber(
+          allocator,
+          .{
+            .mod = mods.getLast().name,
+            .name = Level.levels.getLast().name
+          },
+          @intCast(Level.levels.items.len-1)
         );
-        defer allocator.free(name);
+        // Invalidates levelName
+        luaEnv.?.pop(1);
+        levelName = Level.levels.getLast().name;
 
-        try luaUtil.runFile(luaEnv.?, io, luaFile, name);
-
-        _ = luaEnv.?.pushString(levelInfo.value.name);
-        luaEnv.?.createTable(0, 10);
-
-        // Levels are unique, so light userdata (a pointer) is probably best for them
-        // I cannot express the pain I feel at this statement
-        @setRuntimeSafety(false);
-        luaEnv.?.pushLightUserdata(@ptrFromInt(Level.levels.items.len-1));
+        luaEnv.?.pushInteger(@intCast(Level.levels.items.len-1));
         luaEnv.?.setField(-2, "handle");
 
         pushLevelSubNamespace(
@@ -839,7 +867,7 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
         ) catch unreachable;
 
         for ([_][:0]const u8{
-          "init",
+          //"init",
           "deinit",
           "enter",
           "exit",
@@ -861,17 +889,17 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
 
             log.warn(
               "No {s} function found for level {s}: {}, skipping\n",
-              .{functionName, levelInfo.value.name, e}
+              .{functionName, levelName, e}
             );
           }
         }
 
-        luaEnv.?.setTable(-3);
-      } else |e|
+        luaEnv.?.setField(-2, levelName);
+      } else |_|
       {
         log.warn(
-          "No lua file found for level {s}: {}, skipping\n",
-          .{levelInfo.value.name, e}
+          "No init function found in {s}, skipping\n",
+          .{name}
         );
       }
       //const data = tile.staticData.getLast();
@@ -899,7 +927,7 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
     }
   } else |e|
   {
-    log.warn("No tiles directory found: {}, skipping\n", .{e});
+    log.warn("No levels directory found: {}, skipping\n", .{e});
   }
 }
 

@@ -1,6 +1,18 @@
+init = {
+  name = "smiler",
+  ch = "S",
+  color = {r = 1.0, g = 1.0, b = 1.0},
+  mass = 90,
+  volume = 40
+}
+
 function takeTurn(self)
   print("smiler turn")
   local modActions = self.mod.actions
+
+  if self.pos == nil then 
+    return modActions.wait.queue(self, 10)
+  end
 
   local pos = self.pos:get()
   local playerPos = self.mod.levels.level0.objects:get(0).pos:get()

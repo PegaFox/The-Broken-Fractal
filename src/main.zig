@@ -6,13 +6,8 @@ const Timestamp = Io.Timestamp;
 
 const builtin = @import("builtin");
 
-pub const nc = @cImport({@cInclude("ncurses.h");});
-pub const sdl = @cImport({
-  @cInclude("SDL3/SDL.h");
-  @cInclude("SDL3_image/SDL_image.h");
-});
-
 const directories = @import("directories.zig");
+const lua = @import("zlua");
 const luaUtil = @import("lua.zig");
 const Mod = @import("mod.zig");
 const logger = @import("debug_log_fn.zig");
@@ -25,12 +20,12 @@ const ECS = @import("ecs");
 const Turn = @import("turn.zig");
 const Scene = @import("scene.zig");
 const Level = @import("scenes/level.zig");
-const Level_0 = @import("levels/level_0.zig");
 const Object = @import("object.zig");
 const Player = @import("player.zig");
 const Overtime = @import("overtime.zig");
 const Sight = @import("sight.zig");
 const TileMemory = @import("tile_memory.zig");
+const Inventory = @import("inventory.zig");
 
 const StartOptions = struct {
   useTerminal: ?bool = null,
@@ -38,7 +33,7 @@ const StartOptions = struct {
 
   /// What is even this
   logFile: [Io.Dir.max_path_bytes]u8 =
-    ("log.log" ++ (.{undefined} ** (Io.Dir.max_path_bytes-"log.log".len))).*,
+    ("log.log" ++ @as([Io.Dir.max_path_bytes-"log.log".len]u8, undefined)).*,
   logFileLen: usize = "log.log".len,
 };
 
@@ -134,7 +129,7 @@ pub fn main(init: std.process.Init) !void
   // TODO: Add small chance of levels 1 or 2
   // TODO: Remove currentLevel, instead use the level coordinate of player
   // TODO: Move this logic to base mod (set player position to level on mod init)
-  Level.currentLevel = 0;
+  Level.currentLevel = Level.nameIDs.get(.{.mod = "base", .name = "level0"}) orelse return error.NoLevel0;
 
   defer Turn.queue.deinit(init.gpa);
 
@@ -165,6 +160,11 @@ pub fn main(init: std.process.Init) !void
     //  .{std.time.us_per_s / frameTime, frameTime / std.time.us_per_s}
     //);
 
+    const deltaTimestep = Turn.stepTime(&ecs);
+    //log.debug(
+    //  "{} time step(s) later. Current time = {}\n",
+    //  .{deltaTimestep, Turn.present}
+    //);
 
     var componentIt = ecs.componentTable.iterator();
     while (componentIt.next()) |component|
@@ -176,7 +176,7 @@ pub fn main(init: std.process.Init) !void
 
       for (ecs.getArr(component.key_ptr.*, Overtime).?) |*overtime|
       {
-        overtime.update();
+        overtime.update(@intCast(deltaTimestep));
         //log.debug("Component {s} updated to {}\n", .{component.key_ptr.*, overtime.value});
       }
     }
@@ -207,10 +207,14 @@ pub fn main(init: std.process.Init) !void
 
     Scene.currentScene.draw() catch |e| switch (e)
     {
-      graphics.Error.RenderFail => log.warn("Frame failed to render\n", .{}),
+      graphics.Error.RenderFail => {log.warn("Frame failed to render\n", .{});if (@errorReturnTrace()) |trace| {std.debug.dumpErrorReturnTrace(trace);}},
       else => return e,
     };
 
+    for (ecs.getArr("inventory", Inventory).?) |inventory|
+    {
+      inventory.draw() catch log.warn("Failed to render inventory list\n", .{});
+    }
     try graphics.endFrame();
   }
 

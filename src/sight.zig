@@ -10,6 +10,7 @@ const ViewMap = std.AutoHashMapUnmanaged(Level.Coord, void);
 const ECS = @import("ecs");
 const tile = @import("tile.zig");
 const TileMemory = @import("tile_memory.zig");
+const Object = @import("object.zig");
 const Level = @import("scenes/level.zig");
 const mainspace = @import("main.zig");
 
@@ -38,10 +39,10 @@ pub fn getView(self: *Self, parent: ECS.Entity.Unmanaged, level: *Level)
     mainspace.ecs.getComponentPtr(parent, "tileMemory", TileMemory);
 
   const parentPos =
-    mainspace.ecs.getComponent(parent, "pos", Level.Coord) orelse
+    mainspace.ecs.getComponent(parent, "pos", Object.Pos) orelse
       return error.MissingComponent;
 
-  try self.shadowCast(level, parentPos, parentMemory);
+  try self.shadowCast(level, parentPos.pos, parentMemory);
   //try self.raycast(level, 64, parentPos, parentMemory);
 }
 
@@ -231,10 +232,10 @@ fn shadowCast(
         };
         const lookTile = try level.getTile(pos);
 
-        log.debug(
-          "Pos: {} Start Slope: {}, End Slope: {}\n",
-          .{pos, shadowTop[0].startSlope, shadowTop[0].endSlope}
-        );
+        //log.debug(
+        //  "Pos: {} Start Slope: {}, End Slope: {}\n",
+        //  .{pos, shadowTop[0].startSlope, shadowTop[0].endSlope}
+        //);
 
         try self.view.put(
           Level.gpa, pos, undefined
@@ -253,10 +254,10 @@ fn shadowCast(
           const endSlope = (offset[0]+0.5) / (offset[1]+@as(f32, if (offset[0] < 0) 0.5 else -0.5));
           //const startSlope = (offset[0]-1) / offset[1];
           //const endSlope = (offset[0]+1) / offset[1];
-          log.debug(
-            "Hit Offset: {} Start Slope: {} End Slope: {}\n",
-            .{offset, startSlope, endSlope}
-          );
+          //log.debug(
+          //  "Hit Offset: {} Start Slope: {} End Slope: {}\n",
+          //  .{offset, startSlope, endSlope}
+          //);
           // Avoid infinite slopes
           if (shadowTop[0].line == 0)
           {

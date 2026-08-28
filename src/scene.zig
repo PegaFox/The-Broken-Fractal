@@ -4,7 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 
 const mainspace = @import("main.zig");
-const sdl = mainspace.sdl;
+const sdl = @import("sdl");
 
 pub const ID = enum
 {

@@ -3,6 +3,7 @@ const Self = @This();
 
 const std = @import("std");
 const log = std.log;
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 const lua = @import("zlua");
@@ -44,13 +45,18 @@ pub var queue: std.PriorityQueue(
 ) = .empty;
 
 /// Pushes the object's action to the action queue
+/// If the action cannot be pushed (eg. user input is required for the action), then a temporary junk action is pushed until something else can be used
 pub fn push(allocator: Allocator, ecs: *ECS, object: Object) !void
 {
-  try queue.push(allocator, object.getAction(ecs));
+  try queue.push(
+    allocator,
+    object.getAction(ecs) catch
+      .{.object = object, .startTime = present, .cost = 0}
+  );
 }
 
-var stepTimePendingTurn: Self =
-  .{.object = .{.id = 0}, .startTime = 0, .cost = 0};
+/// This should only be null at game start (probably)
+var stepTimePendingTurn: ?Self = null;
 /// Steps time forward until the next event
 /// Returns how much time passed
 pub fn stepTime(ecs: *ECS) Duration
@@ -64,16 +70,36 @@ pub fn stepTime(ecs: *ECS) Duration
   //  luaUtil.runFunction(luaState) catch unreachable;
   //}
 
-  const turn = stepTimePendingTurn.object.getAction(ecs);
-  queue.update(stepTimePendingTurn, turn) catch {};
+  if (stepTimePendingTurn == null)
+  {
+    stepTimePendingTurn = queue.peek();
+
+    return 0;
+  }
+
+  const pending = &stepTimePendingTurn.?;
+
+  const turn = pending.object.getAction(ecs) catch |e|
+    switch (e)
+    {
+      // Returning here keeps the turn pending and allows us to wait for input for another game loop
+      error.NoInput => return 0,
+      error.LuaFail => Self{
+        .object = pending.object,
+        .startTime = present,
+        .cost = 1,
+      },
+      else => unreachable
+    };
+  queue.update(pending.*, turn) catch {};
 
   stepTimePendingTurn = queue.peek() orelse return 0;
 
   const luaState = Mod.luaEnv.?;
-  const hasAction = stepTimePendingTurn.getLuaAction(luaState);
+  const hasAction = pending.getLuaAction(luaState);
 
   // This needs to be calculated because we don't know how long the action has been in progress
-  const duration = stepTimePendingTurn.endTime() - present;
+  const duration = pending.endTime() - present;
 
   // TODO: Add error handling here
   if (hasAction)

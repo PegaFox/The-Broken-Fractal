@@ -1,8 +1,8 @@
--- The functions defined in this file are automatically namespaced, and as such are an exception to the no globals rule
+-- The functions and tables defined in this file are automatically namespaced, and as such are an exception to the no globals rule
 -- self is an alias for mods.modName.levels.levelName
-function init(self)
-
-end
+init = {
+  name = "level1"
+}
 
 function deinit(self)
 
@@ -17,7 +17,7 @@ function exit(self)
 end
 
 function update(self)
-  local pos = self.camera:centerOn(self.objects:get(0))
+  local pos = self.camera:centerOn(fractal.mods.base.player)
   --print(pos[1], ", ", pos[2])
 end
 

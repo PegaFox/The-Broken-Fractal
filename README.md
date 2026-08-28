@@ -109,7 +109,6 @@
 - Add time system (done)
 - Fix lag that appears after playing for ~30 turns (done)
 - Optimize view system to only regenerate after nearby world change or entity movement
-- Move spawn level logic to base mod (set player position to level on mod init)
 - Implement better save/load system
 - Add server software for saving certain user changes
 - Add developer console
@@ -125,5 +124,7 @@
 - Add item durability/wear-and-tear
 - Add starting loadouts
 - Add small chance of levels 1 or 2
+- Allow mods to add custom textures to be used in graphical mode
+- Move spawn level logic to base mod (set player position to level on mod init)
 - Remove currentLevel, instead use the level coordinate of player
 

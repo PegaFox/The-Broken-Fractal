@@ -6,8 +6,8 @@ const log = std.log;
 const graphics = @import("../graphics.zig");
 
 const mainspace = @import("../main.zig");
-const nc = mainspace.nc;
-const sdl = mainspace.sdl;
+const nc = @import("ncurses");
+const sdl = @import("sdl");
 
 pub var writingBuffer: []u8 = undefined;
 pub var bufferWidth: u8 = 0;
@@ -86,9 +86,9 @@ pub const scene = Scene{
     {
       _ = self;
 
-      try graphics.drawStr(
-        .{1, 0}, "Writing mode. Use arrows to move and escape or enter to leave"
-      );
+      //try graphics.drawStr(
+      //  .{1, 0}, "Writing mode. Use arrows to move and escape or enter to leave"
+      //);
       //_ = nc.mvaddstr(
       //  0, 1, "Writing mode. Use arrows to move and escape or enter to leave"
       //);
@@ -104,9 +104,9 @@ pub const scene = Scene{
       for (0..writingBuffer.len/bufferWidth) |y|
       {
         try graphics.drawCh(.{0, @intCast(y+2)}, '|');
-        try graphics.drawStr(
-          .{1, @intCast(y+2)}, writingBuffer[bufferWidth*y..bufferWidth * (y+1)]
-        );
+        //try graphics.drawStr(
+        //  .{1, @intCast(y+2)}, writingBuffer[bufferWidth*y..bufferWidth * (y+1)]
+        //);
         try graphics.drawCh(.{bufferWidth+2, @intCast(y+2)}, '|');
         //_ = nc.mvaddch(@intCast(y+2), 0, '|');
         //_ = nc.addnstr(writingBuffer.ptr + bufferWidth*y, bufferWidth);

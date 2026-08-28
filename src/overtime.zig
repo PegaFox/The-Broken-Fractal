@@ -22,9 +22,9 @@ pub fn valuePtr(self: *Self) *u32
     else unreachable;
 }
 
-pub fn update(self: *Self) void
+pub fn update(self: *Self, multiplier: i16) void
 {
   const value = self.valuePtr();
 
-  value.* = @max(0, @as(i33, value.*) + self.delta);
+  value.* = @max(0, @as(i33, value.*) + self.delta*multiplier);
 }

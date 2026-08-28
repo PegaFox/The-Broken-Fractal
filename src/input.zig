@@ -7,8 +7,8 @@ const graphics = @import("graphics.zig");
 const Scene = @import("scene.zig");
 
 const mainspace = @import("main.zig");
-const nc = mainspace.nc;
-const sdl = mainspace.sdl;
+const nc = @import("ncurses");
+const sdl = @import("sdl");
 
 const Key = sdl.SDL_Keycode;
 /// An array of null-seperated Key arrays
@@ -134,11 +134,11 @@ const quitEvent = "Quit";
 var currentSequence: [3]Key = undefined;
 var currentSequenceLen: u2 = 0;
 
-/// Blocks until an input is recieved
+/// Polls for an input, returning null if nothing new
 /// Io is used to get a timestamp for events
-pub fn getInput(io: Io) ![]const u8
+pub fn getInput() !?[]const u8
 {
-  const input = pollEvent(io) orelse return "";
+  const input = pollEvent() orelse return null;
 
   switch (std.hash_map.hashString(input))
   {
@@ -151,18 +151,20 @@ pub fn getInput(io: Io) ![]const u8
   return input;
 }
 
-/// Io is used to get a timestamp for events
-fn pollEvent(io: Io) ?[]const u8
-{_ = io;
+fn pollEvent() ?[]const u8
+{
   if (graphics.sdlData != null)
   {
     var event: sdl.SDL_Event = undefined;
 
     // Conditional returns on success so we can fetch both events depending on window/terminal focus
-    if (sdl.SDL_PollEvent(&event))
+    while (sdl.SDL_PollEvent(&event))
     {
       switch (event.type)
       {
+        sdl.SDL_EVENT_QUIT => {
+          return quitEvent;
+        },
         sdl.SDL_EVENT_KEY_DOWN => {
           if (
             event.key.mod & sdl.SDL_KMOD_CTRL > 0 and
@@ -181,13 +183,14 @@ fn pollEvent(io: Io) ?[]const u8
         else => {}
       }
     }
+
+    return null;
   }
 
   if (graphics.ncData != null)
   {
     const key: c_int = nc.getch();
-    
-    if (key == -1)
+    if (key == nc.ERR)
     {
       return null;
     }

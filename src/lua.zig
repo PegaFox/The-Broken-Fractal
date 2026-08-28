@@ -14,9 +14,10 @@ const Mod = @import("mod.zig");
 const Overtime = @import("overtime.zig");
 const Sight = @import("sight.zig");
 const TileMemory = @import("tile_memory.zig");
+const Inventory = @import("inventory.zig");
 const Object = @import("object.zig");
 const Level = @import("scenes/level.zig");
-const tile = @import("tile.zig");
+const Tile = @import("tile.zig");
 const mainspace = @import("main.zig");
 const lua = @import("zlua");
 
@@ -71,8 +72,8 @@ pub fn init(allocator: Allocator) Allocator.Error!*lua.Lua
   state.createTable(0, 8);
   state.setField(-2, "mods");
 
-  state.pushFunction(luaInput);
-  state.setField(-2, "input");
+  //state.pushFunction(luaInput);
+  //state.setField(-2, "input");
 
   state.createTable(1, 0);
 
@@ -197,14 +198,17 @@ pub fn globalCount(self: *lua.Lua) usize
 
 var printedTables = std.AutoHashMapUnmanaged().empty;
 var luaPrintEndsInNewline = true;
-fn luaPrint(self: *lua.Lua) i32
+pub fn luaPrint(self: *lua.Lua) i32
 {
-  const argNum = @max(0, self.getTop());
+  const argNum: u31 = @intCast(self.getTop());
+  // Reset the stack in case we're calling this from zig
+  defer self.setTop(argNum);
 
-  self.checkStackErr(1, null);
+  //self.checkStackErr(1, null);
 
   for (1..argNum+1) |arg|
   {
+    //self.setTop(argNum);
     switch (self.typeOf(@intCast(arg)))
     {
       .table => {
@@ -302,9 +306,7 @@ pub const luaTiming = struct
     state.pushInteger(@truncate(nanoseconds));
     state.setField(-2, "startTime");
 
-    state.pushFunction(
-      toApiFunction("timing:stop", stop, .{}) catch unreachable
-    );
+    state.pushFunction(toApiFunction("timing:stop", stop, .{}));
     state.setField(-2, "stop");
 
     return 1;
@@ -322,27 +324,21 @@ pub const luaTiming = struct
 
 pub const luaTile = struct
 {
+  parent: LevelHandle,
+
   /// self.tiles:get(pos) => {"mod", "name"}
-  pub fn get(state: ?*lua.LuaState) callconv(.c) c_int
+  pub const get = toApiFunction("tiles:get", getInner, .{});
+
+  fn getInner(
+    self: luaTile,
+    pos: Level.Coord) ![2][]const u8
   {
-    const self: *lua.Lua = @ptrCast(state orelse unreachable);
+    const tile = try Level.levels.items[self.parent.handle].getTile(pos);
   
-    const args = getLuaLevelPosArgs(self);
-  
-    const tileEntity =
-      Level.levels.items[args.levelID].getTile(args.pos) catch return 0;
-    const tileType =
-      mainspace.ecs.get(tileEntity, "tileType", tile.Type) orelse unreachable;
-  
-    self.createTable(2, 0);
-  
-    _ = self.pushString(Mod.findTileMod(tileType).name);
-    self.setIndex(-2, 1);
-  
-    _ = self.pushString(tile.staticData.items[tileType].name);
-    self.setIndex(-2, 2);
-  
-    return 1;
+    return .{
+      Mod.findTileMod(tile.type).name,
+      tile.getStaticData().?.name
+    };
   }
   
   /// self.tiles:getInfo(pos) => {
@@ -351,40 +347,35 @@ pub const luaTile = struct
   ///   color = {"r": 1.0, "g": 1.0, "b": 1.0},
   ///   wallConnect = false,
   ///   ch = "."
-  /// } or nil
+  /// }
   /// This is slightly faster than calling luaTileGet then accessing it using the global table
-  pub fn getInfo(state: ?*lua.LuaState) callconv(.c) c_int
+  pub const getInfo = toApiFunction("tiles:getInfo", getInfoInner, .{});
+
+  fn getInfoInner(
+    self: luaTile,
+    pos: Level.Coord)
+    !struct {
+      name: []const u8,
+      walkable: bool,
+      color: struct {r: f32, g: f32, b: f32},
+      wallConnect: bool,
+      ch: []const u8,
+    }
   {
-    const self: *lua.Lua = @ptrCast(state orelse unreachable);
+    const tile = try Level.levels.items[self.parent.handle].getTile(pos);
+    const data = tile.getStaticData().?;
   
-    const args = getLuaLevelPosArgs(self);
-  
-    const tileEntity =
-      Level.levels.items[args.levelID].getTile(args.pos) catch return 0;
-    const data = tile.getStaticData(tileEntity) orelse return 0;
-  
-    self.pushAny(
-      struct
-      {
-        name: []const u8,
-        walkable: bool,
-        color: struct {r: f32, g: f32, b: f32},
-        wallConnect: bool,
-        ch: []const u8
-      }{
-        .name = data.name,
-        .walkable = data.walkable,
-        .color = .{
-          .r = data.color[0],
-          .g = data.color[1],
-          .b = data.color[2]
-        },
-        .wallConnect = data.wallConnect,
-        .ch = (&data.ch)[0..1],
-      }
-    ) catch return 0;
-  
-    return 1;
+    return .{
+      .name = data.name,
+      .walkable = data.walkable,
+      .color = .{
+        .r = data.color[0],
+        .g = data.color[1],
+        .b = data.color[2]
+      },
+      .wallConnect = data.wallConnect,
+      .ch = (&data.ch)[0..1],
+    };
   }
   
   /// self.tiles:iterate() => iterator
@@ -396,12 +387,12 @@ pub const luaTile = struct
   {
     state.argCheck(state.getField(1, "parent") == .table, 1, "Not a namespace");
     state.argCheck(
-      state.getField(-1, "handle") == .light_userdata,
+      state.getField(-1, "handle") == .number,
       1,
       "Not a level"
     );
   
-    state.pushValue(1);
+    state.pushValue(-1);
     // Store current index as closure
     state.pushInteger(0);
     // Reuse key table for performance
@@ -412,8 +403,7 @@ pub const luaTile = struct
         //?struct {Level.Coord, ECS.Entity.Unmanaged}
       {
         const levelId: Level.ID =
-          if (self.toUserdata(anyopaque, -1)) |id| @intCast(@intFromPtr(id))
-          else |_| 0;
+          @intCast(self.toInteger(lua.Lua.upvalueIndex(1)) catch unreachable);
   
         const index = self.toInteger(lua.Lua.upvalueIndex(2)) catch unreachable;
         self.pushInteger(index + 1);
@@ -436,7 +426,7 @@ pub const luaTile = struct
           self.pushInteger(kv.key[1]);
           self.setIndex(-2, 2);
           //self.pushAny(tiles.keys()[@intCast(index)]) catch unreachable;
-          self.pushInteger(kv.value);
+          self.pushInteger(kv.value.id);
           return 2;
         } else 
         {
@@ -450,29 +440,22 @@ pub const luaTile = struct
   /// self.tiles:remove(pos) => bool
   /// Removes tile at pos
   /// Returns whether there was a tile there
-  pub const remove = toApiFunction(
-    "tiles:remove",
-    removeInner,
-    .{}
-  ) catch unreachable;
+  pub const remove = toApiFunction("tiles:remove", removeInner, .{});
   
-  fn removeInner(level: LevelHandle, pos: Level.Coord) bool
+  fn removeInner(self: luaTile, pos: Level.Coord) bool
   {
-    return Level.levels.items[@intFromPtr(level.handle)].tiles.swapRemove(pos);
+    return Level.levels.items[self.parent.handle].tiles.swapRemove(pos);
   }
   
   /// self.tiles:count() => int
   /// Returns size of level's tilemap
-  pub const count = toApiFunction(
-    "tiles:count",
-    countInner,
-    .{}
-  ) catch unreachable;
+  pub const count = toApiFunction("tiles:count", countInner, .{});
   
-  fn countInner(level: LevelHandle) u32
+  fn countInner(self: luaTile) u32
   {
+    //log.debug("{} tiles in {s}\n", .{Level.levels.items[@intFromPtr(level.handle)].tiles.count(), Level.levels.items[@intFromPtr(level.handle)].name});
     return
-      @intCast(Level.levels.items[@intFromPtr(level.handle)].tiles.count());
+      @intCast(Level.levels.items[self.parent.handle].tiles.count());
   }
 };
 
@@ -553,6 +536,8 @@ pub const luaObject = struct
       .mod = state.toString(-2) catch unreachable,
       .name = state.toString(-1) catch unreachable
     }) orelse return error.InvalidIdentifier;
+    // The type identifier can leave the scope now
+    state.pop(3);
 
     if (objectType >= Object.staticData.items.len)
       return error.InvalidIdentifier;
@@ -580,35 +565,29 @@ pub const luaObject = struct
 
     const objectTableIdx = state.getTop();
 
+    state.pushInteger(object.type);
+    state.setField(objectTableIdx, "type");
+
     state.pushInteger(object.id);
     state.setField(objectTableIdx, "id");
   
+    std.debug.assert(
+      state.getGlobal("fractal") catch unreachable == .table
+    );
+    std.debug.assert(state.getField(-1, "mods") == .table);
+    _ = state.pushString(Mod.findObjectMod(object.type).name);
+    std.debug.assert(state.getTable(-2) == .table);
+
+    state.setField(objectTableIdx, "mod");
+
     var it = ecs.componentTable.iterator();
     while (it.next()) |arr|
     {
       switch (std.hash_map.hashString(arr.value_ptr.typeID))
       {
-        std.hash_map.hashString(@typeName(Object.Type)) =>
+        std.hash_map.hashString(@typeName(Object.Pos)) =>
         {
-          if (ecs.get(object.id, arr.key_ptr.*, Object.Type)) |@"type"|
-          {
-            _ = state.pushString(arr.key_ptr.*);
-            state.pushInteger(@"type");
-            state.setTable(objectTableIdx);
-
-            std.debug.assert(
-              state.getGlobal("fractal") catch unreachable == .table
-            );
-            std.debug.assert(state.getField(-1, "mods") == .table);
-            _ = state.pushString(Mod.findObjectMod(@"type").name);
-            std.debug.assert(state.getTable(-2) == .table);
-
-            state.setField(objectTableIdx, "mod");
-          }
-        },
-        std.hash_map.hashString(@typeName(Level.Coord)) =>
-        {
-          if (ecs.get(object.id, arr.key_ptr.*, Level.Coord) == null)
+          if (ecs.get(object.id, arr.key_ptr.*, Object.Pos) == null)
           {
             break;
           }
@@ -622,10 +601,12 @@ pub const luaObject = struct
               self: struct {parent: struct {id: ECS.Entity.Unmanaged}})
                 Level.Coord
               {
-                return mainspace.ecs.get(self.parent.id, "pos", Level.Coord).?;
+                return mainspace.ecs.get(
+                  self.parent.id, "pos", Object.Pos
+                ).?.pos;
               }}.get,
             .{}
-          ) catch unreachable);
+          ));
           state.setField(-2, "get");
           state.pushFunction(toApiFunction(
             "object.pos:set",
@@ -633,11 +614,15 @@ pub const luaObject = struct
               self: struct {parent: struct {id: ECS.Entity.Unmanaged}},
               newPos: Level.Coord) void
               {
-                mainspace.ecs.getPtr(self.parent.id, "pos", Level.Coord).?.* =
-                  newPos;
+                const pos =
+                  mainspace.ecs.getPtr(self.parent.id, "pos", Object.Pos).?;
+
+                //Level.levels.items[Level.currentLevel].getTile();
+
+                pos.pos = newPos;
               }}.set,
             .{}
-          ) catch unreachable);
+          ));
           state.setField(-2, "set");
           state.setField(objectTableIdx, "pos");
         },
@@ -668,7 +653,7 @@ pub const luaObject = struct
   
               return sight.inView(pos);
             }}.inView, .{}
-          ) catch unreachable, 1);
+          ), 1);
           state.setField(-2, "inView");
 
           state.pushValue(objectTableIdx);
@@ -694,7 +679,7 @@ pub const luaObject = struct
   
               return;
             }}.draw, .{}
-          ) catch unreachable, 1);
+          ), 1);
           state.setField(-2, "draw");
 
           state.setField(objectTableIdx, "sight");
@@ -731,7 +716,7 @@ pub const luaObject = struct
   
               return;
             }}.draw, .{}
-          ) catch unreachable, 1);
+          ), 1);
           state.setField(-2, "draw");
 
           state.setField(objectTableIdx, "memory");
@@ -765,7 +750,7 @@ pub const luaObject = struct
               
               return component.valuePtr().*;
           }}.get,
-          .{}) catch unreachable, 2);
+          .{}), 2);
           state.setField(-2, "get");
 
           state.pushInteger(object.id);
@@ -783,7 +768,7 @@ pub const luaObject = struct
               
               component.valuePtr().* = value;
           }}.set,
-          .{}) catch unreachable, 2);
+          .{}), 2);
           state.setField(-2, "set");
 
           state.setField(-2, "value");
@@ -805,7 +790,7 @@ pub const luaObject = struct
               
               return component.valuePtr().*;
           }}.get,
-          .{}) catch unreachable, 2);
+          .{}), 2);
           state.setField(-2, "get");
 
           state.pushInteger(object.id);
@@ -823,10 +808,111 @@ pub const luaObject = struct
               
               component.valuePtr().* = value;
           }}.set,
-          .{}) catch unreachable, 2);
+          .{}), 2);
           state.setField(-2, "set");
 
           state.setField(-2, "change");
+
+          state.setTable(objectTableIdx);
+        },
+        std.hash_map.hashString(@typeName(Inventory)) =>
+        {
+          if (ecs.get(object.id, arr.key_ptr.*, Inventory) == null)
+          {
+            break;
+          }
+
+          _ = state.pushString(arr.key_ptr.*);
+          const componentNameIdx = state.getTop();
+
+          const InventoryUserdata = struct {
+            // The object that owns the inventory
+            object: Object
+          };
+          state.newUserdata(InventoryUserdata, 0).* = .{.object = object};
+
+          state.createTable(0, 2);
+          _ = state.pushValue(componentNameIdx);
+          state.pushClosure(toApiFunction("object.inventory.__index",
+            struct {fn inventoryIndex(luaState: *lua.Lua) u32
+            {
+              const inventoryReference =
+                luaState.toUserdata(InventoryUserdata, 1) catch |e|
+                  luaState.raiseErrorStr(
+                    "object.inventory.__index arg 1 expected type userdata: %s",
+                    .{@errorName(e).ptr}
+                  );
+              const index: usize = @intCast(luaState.toInteger(2) catch |e|
+                luaState.raiseErrorStr(
+                  "object.inventory.__index arg 2 expected type usize: %s",
+                  .{@errorName(e).ptr}
+                ));
+
+              const inventory = mainspace.ecs.getPtr(
+                inventoryReference.object.id,
+                luaState.toString(lua.Lua.upvalueIndex(1)) catch unreachable,
+                Inventory
+              ).?;
+
+              generateLua(
+                luaState,
+                &mainspace.ecs,
+                inventory.items.items[index]
+              );
+              return 1;
+            }}.inventoryIndex,
+          .{.resultOnStack = true}), 1);
+          state.setField(-2, "__index");
+          _ = state.pushValue(componentNameIdx);
+          state.pushClosure(lua.wrap(
+            struct {fn inventoryNewIndex(luaState: *lua.Lua) u32
+            {
+              const inventoryReference =
+                luaState.toUserdata(InventoryUserdata, 1) catch |e|
+                  luaState.raiseErrorStr(
+                    "object.inventory.__newindex arg 1 expected type userdata: %s",
+                    .{@errorName(e).ptr}
+                  );
+              const index: usize = @intCast(luaState.toInteger(2) catch |e|
+                luaState.raiseErrorStr(
+                  "object.inventory.__newindex arg 2 expected type usize: %s",
+                  .{@errorName(e).ptr}
+                ));
+
+              const inventory = mainspace.ecs.getPtr(
+                inventoryReference.object.id,
+                luaState.toString(lua.Lua.upvalueIndex(1)) catch unreachable,
+                Inventory
+              ).?;
+
+              if (index < inventory.items.items.len)
+              {
+                luaState.raiseErrorStr(
+                  "Base reassigning an object is not allowed (yet)", .{}
+                );
+              } else
+              {
+                inventory.items.append(luaState.allocator(),
+                  generateZig(
+                    luaState,
+                    luaState.allocator(),
+                    &mainspace.ecs,
+                  ) catch |e|
+                    luaState.raiseErrorStr(
+                      "Failed to create new object: %s",
+                      .{@errorName(e).ptr}
+                    )
+                ) catch |e|
+                  luaState.raiseErrorStr(
+                    "Failed to add object to inventory: %s",
+                    .{@errorName(e).ptr}
+                  );
+              }
+              return 1;
+            }}.inventoryNewIndex
+          ), 1);
+          state.setField(-2, "__newindex");
+          state.setMetatable(-2);
 
           state.setTable(objectTableIdx);
         },
@@ -840,53 +926,52 @@ pub const luaObject = struct
     state.setTop(objectTableIdx);
   }
 
-  /// The inverse of generateLua, converting a lua table into a new object
+  /// The inverse of generateLua, converting the lua table at the top of the stack into a new object and popping the top
   pub fn generateZig(state: *lua.Lua, allocator: Allocator, ecs: *ECS)
-    error{OutOfMemory, ExpectedArgument}!Object
+    error{OutOfMemory, ExpectedArgument, ExpectedTable}!Object
   {
-    if (state.getTop() == 0)
+    const top = state.getTop();
+
+    if (top == 0)
     {
       return error.ExpectedArgument;
     }
 
-    const result = Object{.id = ecs.addEntity(.{}).id};
-    try Turn.push(allocator, ecs, result);
+    var result = Object{.type = 0, .id = ecs.addEntity(.{}).id};
 
-    if (state.getField(1, "type") == .number and state.isInteger(-1))
+    if (state.getField(top, "type") == .number and state.isInteger(-1))
     {
       // Assume type field fits inside of Object.Type since this function will likely be called from LuaObject.add
-      ecs.addC(
-        result.id,
-        "objectType",
-        @as(Object.Type, @intCast(state.toInteger(-1) catch unreachable))
-      );
+      result.type = @intCast(state.toInteger(-1) catch unreachable);
     }
-    state.setTop(1);
+    state.setTop(top);
 
-    _ = state.getField(1, "pos");
-    _ = state.getIndex(-1, 1);
-    _ = state.getIndex(-2, 2);
-    log.debug("pos = {}\n", .{.{state.toInteger(-2), state.toInteger(-1)}});
+    try Turn.push(allocator, ecs, result);
+
     if (
-      state.getField(1, "pos") == .table and
-      state.getIndex(-1, 1) == .number and
+      state.getField(top, "pos") == .table and
+      state.getIndex(top+1, 1) == .number and
       state.isInteger(-1) and
-      state.getIndex(-2, 2) == .number and 
+      state.getIndex(top+1, 2) == .number and 
       state.isInteger(-1))
     {
+      log.debug("pos = {}\n", .{.{state.toInteger(-2), state.toInteger(-1)}});
       ecs.addC(
         result.id,
         "pos",
-        Level.Coord{
-          @truncate(state.toInteger(-2) catch unreachable),
-          @truncate(state.toInteger(-1) catch unreachable)
+        Object.Pos{
+          .pos = .{
+            @truncate(state.toInteger(-2) catch unreachable),
+            @truncate(state.toInteger(-1) catch unreachable)
+          },
+          .next = undefined
         }
       );
     }
-    state.setTop(1);
+    state.setTop(top);
 
     if (
-      state.getField(1, "sight") == .table and
+      state.getField(top, "sight") == .table and
       state.getField(-1, "radius") == .number and
       state.isInteger(-1))
     {
@@ -899,9 +984,9 @@ pub const luaObject = struct
         }
       );
     }
-    state.setTop(1);
+    state.setTop(top);
 
-    if (state.getField(1, "memory") == .table)
+    if (state.getField(top, "memory") == .table)
     {
       ecs.addC(
         result.id,
@@ -911,16 +996,49 @@ pub const luaObject = struct
         }
       );
     }
-    state.setTop(1);
+    state.setTop(top);
+
+    if (state.getField(top, "inventory") == .table)
+    {
+      ecs.addC(result.id, "inventory", Inventory{
+        .capacity =
+          if (state.getField(2, "capacity") == .number)
+            @floatCast(state.toNumber(-1) catch unreachable)
+          else 0,
+        .items = 
+          if (state.getField(2, "items") == .table)
+          arr:{
+            state.len(-1);
+            const itemCount: usize =
+              @intCast(state.toInteger(-1) catch unreachable);
+            state.pop(1);
+
+            const itemArr = try allocator.alloc(Object, itemCount);
+            for (0..itemCount) |i|
+            {
+              if (state.getIndex(-1, @intCast(i+1)) != .table)
+              {
+                return error.ExpectedTable;
+              }
+
+              itemArr[i] = try generateZig(state, allocator, ecs);
+            }
+
+            break:arr .fromOwnedSlice(itemArr);
+          }
+          else .empty,
+      });
+    }
+    state.setTop(top);
 
     inline for ([_][:0]const u8{"energy", "food", "fluid", "sanity"}) |stat|
     {
       if (
-        state.getField(1, stat) == .table and
-        state.getField(2, "value") == .number and 
+        state.getField(top, stat) == .table and
+        state.getField(top+1, "value") == .number and 
         state.isInteger(-1))
       {
-        _ = state.getField(2, "rate");
+        _ = state.getField(top+1, "rate");
 
         ecs.addC(
           result.id,
@@ -934,15 +1052,16 @@ pub const luaObject = struct
           }
         );
       }
-      state.setTop(1);
+      state.setTop(top);
     }
 
+    // Remove argument from the stack
+    state.pop(1);
     return result;
   }
 };
 
-/// id is actually Level.ID, but it's stored as userdata in lua
-const LevelHandle = struct {handle: ?*anyopaque};
+const LevelHandle = struct {handle: Level.ID};
 
 pub const luaCamera = struct
 {
@@ -950,108 +1069,58 @@ pub const luaCamera = struct
 
   /// self.camera:centerOn(entity) => pos
   /// Returns true camera position after centering
-  pub const centerOn = toApiFunction(
-    "camera:centerOn",
-    centerOnInner,
-    .{}
-  ) catch unreachable;
+  pub const centerOn = toApiFunction("camera:centerOn", centerOnInner, .{});
   
   pub fn centerOnInner(
     self: @This(),
     entity: struct {id: ECS.Entity.Unmanaged}) !Level.Coord
   {
-    const pos = mainspace.ecs.get(entity.id, "pos", Level.Coord) orelse
+    const pos = mainspace.ecs.get(entity.id, "pos", Object.Pos) orelse
       return error.MissingComponent;
   
-    return centerInner(self, pos);
+    return centerInner(self, pos.pos);
   }
   
-  /// self.camera:centerOn(pos) => pos
+  /// self.camera:center(pos) => pos
   /// Returns true camera position after centering
-  pub const center = toApiFunction(
-    "cameraCenter",
-    centerInner,
-    .{}
-  ) catch unreachable;
+  pub const center = toApiFunction("camera:center", centerInner, .{});
   
   fn centerInner(self: @This(), pos: Level.Coord)
     Level.Coord
   {
     const truePos = pos - graphics.size()/@as(Level.Coord, @splat(2));
+
     setPosInner(self, truePos);
   
     return truePos;
   }
   
-  /// self:cameraSetPos(pos) => nil
-  pub const setPos = toApiFunction(
-    "cameraSetPos",
-    setPosInner,
-    .{}
-  ) catch unreachable;
+  /// self:camera:setPos(pos) => nil
+  pub const setPos = toApiFunction("camera:setPos", setPosInner, .{});
   
   fn setPosInner(
     self: @This(),
     pos: Level.Coord) void
   {
-    Level.levels.items[@intFromPtr(self.parent.handle)].camPos = pos;
+    Level.levels.items[self.parent.handle].camPos = pos;
   }
 };
 
-fn getLuaLevelPosArgs(self: *lua.Lua)
-  struct {levelID: Level.ID, pos: Level.Coord}
-{
-  if (self.getTop() < 2) self.raiseErrorStr(
-    "level:function(pos) expected 2 arguments, got {}", .{self.getTop()}
-  );
-
-  self.argExpected(self.isTable(1), 1, "namespace");
-  self.argCheck(
-    self.getField(1, "parent") == .table, 1, "must have parent member"
-  );
-  self.argCheck(
-    self.getField(-1, "handle") == .light_userdata, 1, "must have handle member"
-  );
-  // I'm just digging myself deeper into this putrid cesspool
-  const levelID: Level.ID =
-    if (self.toUserdata(anyopaque, -1)) |id| @intCast(@intFromPtr(id))
-    else |_| 0;
-
-  self.argExpected(self.isTable(2), 2, "pos");
-  self.argCheck(
-    self.getIndex(2, 1) == .number, 1, "must be an integer"
-  );
-  self.argCheck(
-    self.isInteger(-1), 1, "must be an integer"
-  );
-  self.argCheck(
-    self.getIndex(2, 2) == .number, 1, "must be an integer"
-  );
-  self.argCheck(
-    self.isInteger(-1), 1, "must be an integer"
-  );
-
-  const pos = Level.Coord{
-    @intCast(self.toInteger(-2) catch unreachable),
-    @intCast(self.toInteger(-1) catch unreachable)
-  };
-
-  return .{.levelID = levelID, .pos = pos};
-}
-
 const ToApiFuncOptions = struct
 {
-
+  /// Allows for lua style function returns, where the function returns the result count on the stack
+  resultOnStack: bool = false,
 };
-fn toApiFunction(
+pub fn toApiFunction(
   comptime name: [:0]const u8,
   comptime function: anytype,
-  options: ToApiFuncOptions) error{NotAFunction}!lua.CFn
+  comptime options: ToApiFuncOptions) lua.CFn
 {
-  _ = options;
   if (@typeInfo(@TypeOf(function)) != .@"fn")
   {
-    return error.NotAFunction;
+    @compileError(
+      "toApiFunction expected function, got " ++ @typeName(@TypeOf(function))
+    );
   }
 
   const fnSig = @typeInfo(@TypeOf(function)).@"fn";
@@ -1119,10 +1188,13 @@ fn toApiFunction(
         else
           @call(.auto, function, args);
 
-      self.pushAny(result) catch |e| self.raiseErrorStr(
-        "%s return failed with result type %s: %s",
-        .{name.ptr, @typeName(@TypeOf(result)), @errorName(e).ptr}
-      );
+      if (!options.resultOnStack)
+      {
+        self.pushAny(result) catch |e| self.raiseErrorStr(
+          "%s return failed with result type %s: %s",
+          .{name.ptr, @typeName(@TypeOf(result)), @errorName(e).ptr}
+        );
+      }
 
       return 1;
     } else
