@@ -5,6 +5,7 @@ const log = std.log;
 const Allocator = std.mem.Allocator;
 const json = std.json;
 
+const luaUtil = @import("lua.zig");
 const Mod = @import("mod.zig");
 const graphics = @import("graphics.zig");
 
@@ -14,72 +15,40 @@ const mainspace = @import("main.zig");
 
 pub const StaticData = struct
 {
-  name: []const u8,
+  name: [:0]const u8,
   walkable: bool,
   color: graphics.Color,
   wallConnect: bool,
-  ch: u8,
+  /// If null, ch is determined by a lua function in the registry
+  ch: ?u8,
 
-  /// source is a *json.Scanner or a *json.Reader
-  pub fn jsonParse(
-    allocator: Allocator,
-    source: anytype,
-    options: json.ParseOptions,
-  ) json.ParseError(@TypeOf(source.*))!@This()
+  pub fn getCh(self: StaticData, tile: Self) u8
   {
-    var result: @This() = undefined;
+    return self.ch orelse ch:{
+      const state = Mod.luaEnv.?;
 
-    if (try source.next() != .object_begin) return error.UnexpectedToken;
+      const top = state.getTop();
+      defer state.setTop(top);
 
-    // Stall protection
-    for (0..100) |_|
-    {
-      const token: ?json.Token = try source.nextAllocMax(
-        allocator, .alloc_if_needed, options.max_value_len.?
-      );//log.debug("Parsing token {}\n", .{token.?});
-      const fieldNameHash = std.hash_map.hashString(switch (token.?) {
-        inline .string, .allocated_string => |slice| slice,
-        .object_end => { // No more fields.
-          break;
-        },
-        else => {
-          return error.UnexpectedToken;
-        },
-      });
-      if (token.? == .allocated_string)
+      std.debug.assert(
+        (state.getGlobal("fractal") catch unreachable) == .table
+      );
+      std.debug.assert(state.getField(-1, "mods") == .table);
+      std.debug.assert(
+        state.getField(-1, Mod.findTileMod(tile.type).name) == .table
+      );
+      std.debug.assert(state.getField(-1, "tiles") == .table);
+      std.debug.assert(state.getField(-1, self.name) == .userdata);
+
+      if (state.getField(-1, "ch") == .function)
       {
-        allocator.free(token.?.allocated_string);
+        luaUtil.luaTiles.luaTile.fromTile(state, tile);
+        luaUtil.runFunction(state, .{.args = 1, .results = 1}) catch
+          unreachable;
       }
-      
-      switch (fieldNameHash)
-      {
-        std.hash_map.hashString("name") => result.name =
-          try json.innerParse([]const u8, allocator, source, options),
-        std.hash_map.hashString("walkable") => result.walkable =
-          try json.innerParse(bool, allocator, source, options),
-        std.hash_map.hashString("color") => {
-          const colorRGB = try json.innerParse(
-            struct {r: f32, g: f32, b: f32}, allocator, source, options
-          );
-          result.color = .{colorRGB.r, colorRGB.g, colorRGB.b};
-        },
-        std.hash_map.hashString("wallConnect") => result.wallConnect =
-          try json.innerParse(bool, allocator, source, options),
-        std.hash_map.hashString("ch") => {
-          const chStr =
-            try json.innerParse([]const u8, allocator, source, options);
-          result.ch = if (chStr.len > 0) chStr[0] else ' ';
-        },
-        else => 
-          if (options.ignore_unknown_fields) {
-            try source.skipValue();
-          } else {
-            return error.UnknownField;
-          }
-      }
-    }
 
-    return result;
+      break:ch (state.toString(-1) catch unreachable)[0];
+    };
   }
 };
 pub var staticData = std.ArrayList(StaticData).empty;
@@ -112,7 +81,7 @@ pub fn draw(tiles: Level.Tilemap, pos: Level.Coord, camPos: Level.Coord)
 
   const data = getStaticData(tile).?;
 
-  const ch: graphics.Char = if (!data.wallConnect) data.ch
+  const ch: graphics.Char = if (!data.wallConnect) data.getCh(tile)
     else
     blk:{
       const Neighbors = packed struct

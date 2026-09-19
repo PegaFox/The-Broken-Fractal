@@ -17,7 +17,7 @@ function init(self)
   self.levels.level0.objects:add(
     {"base", "player"},
     {
-      pos = {0, 0},
+      pos = {1, 1},
       sight = {radius = 15},
       memory = {},
       inventory = {capacity = 5, items = {}},
@@ -47,6 +47,25 @@ function update(self)
     print("Oh boy! Looks like you ran out of energy!")
   end
 
-  self.player.memory.draw()
-  self.player.sight.draw()
+  self.player.memory:draw()
+  self.player.sight:draw()
+
+  -- drawWindow(minWidth, minHeight, windowModifiers)
+  --local window = fractal.drawWindow({10, 10}, {
+  --  -- Navigation modifier is optional, but adds triggers for the movement
+  --  {"navigation", up = "Up", down = "Down", select = "Wait"},
+  --  {"border"},
+  --  {"inventory", self.player.inventory},
+  --  {"text area", size = {10, 10}, text = ""}
+  --})
+
+  -- Try to move cursor to nearest upward element
+  --window.cursor.move({0, -1})
+  -- Move cursor to element 3
+  --window.cursor.focus(3)
+  -- Expand backpack inventory tab
+  --window[2][1].open()
+
+  -- drawHudElement(minWidth, text)
+  --fractal.drawHudElement(0, "Energy: "..self.player.energy)
 end

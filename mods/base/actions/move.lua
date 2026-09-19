@@ -3,7 +3,7 @@ function queue(object, offset)
   local objectPos = object.pos:get()
   local pos = {objectPos[1] + offset[1], objectPos[2] + offset[2]}
 
-  if object.mod.levels.level0.tiles:getInfo(pos).walkable then
+  if object.mod.levels.level0.tiles:get(pos):typeData().walkable then
     return {
       -- Inaccurate but cheap distance calculation
       cost = math.abs(offset[1]) + math.abs(offset[2]),
@@ -11,5 +11,7 @@ function queue(object, offset)
         object.pos:set({pos[1], pos[2]})
       end
     }
+  else
+    return fractal.mods.base.actions.wait.queue(object, 1)
   end
 end

@@ -11,25 +11,25 @@ const File = Io.File;
 
 const directories = @import("directories.zig");
 const input = @import("input.zig");
-const tile = @import("tile.zig");
+const Tile = @import("tile.zig");
 const Object = @import("object.zig");
 const Level = @import("scenes/level.zig");
 
 const lua = @import("zlua");
 const luaUtil = @import("lua.zig");
 
-name: []const u8,
+name: [:0]const u8,
 version: std.SemanticVersion,
 
 /// These get default values so json parsing doesn't complain about missing fields
-inputStartType: tile.Type = undefined,
-tileStartType: tile.Type = undefined,
+inputStartType: Tile.Type = undefined,
+tileStartType: Tile.Type = undefined,
 objectStartType: Object.Type = undefined,
 levelStartID: Level.ID = undefined,
 
 pub var mods = std.ArrayList(Self).empty;
 
-pub fn findTileMod(tileType: tile.Type) *const Self
+pub fn findTileMod(tileType: Tile.Type) *const Self
 {
   return modBinarySearch("tileStartType", tileType);
 }
@@ -110,10 +110,15 @@ pub fn unloadAll(allocator: Allocator, retainMemory: bool) void
 
   if (!retainMemory)
   {
+    var it = input.inputs.iterator();
+    while (it.next()) |pair|
+    {
+      allocator.free(pair.value_ptr.*);
+    }
     input.bindings.clearAndFree(allocator);
     input.inputs.clearAndFree(allocator);
-    tile.staticData.clearAndFree(allocator);
-    tile.nameTypes.clearAndFree(allocator);
+    Tile.staticData.clearAndFree(allocator);
+    Tile.nameTypes.clearAndFree(allocator);
     Object.staticData.clearAndFree(allocator);
     Object.nameTypes.clearAndFree(allocator);
     Level.levels.clearAndFree(allocator);
@@ -259,14 +264,14 @@ pub fn unload(mod: *Self, allocator: Allocator) void
   const afterLastTileType = if (modIndex < mods.items.len-1)
     mods.items[modIndex+1].tileStartType
   else
-    tile.staticData.items.len;
+    Tile.staticData.items.len;
 
-  for (tile.staticData.items[
+  for (Tile.staticData.items[
     mod.tileStartType..afterLastTileType
   ]) |*modTile|
   {
     std.debug.assert(
-      tile.nameTypes.remove(.{.mod = mod.name, .name = modTile.name})
+      Tile.nameTypes.remove(.{.mod = mod.name, .name = modTile.name})
     );
 
     allocator.free(modTile.name);
@@ -318,9 +323,9 @@ fn loadInit(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
     return LoadError.NoInfoJson;
   const info = try jsonFromFile(Self, io, allocator, infoFile);
   try mods.append(allocator, .{
-    .name = try allocator.dupe(u8, info.value.name),
+    .name = try allocator.dupeSentinel(u8, info.value.name, 0),
     .version = info.value.version,
-    .tileStartType = @intCast(tile.staticData.items.len),
+    .tileStartType = @intCast(Tile.staticData.items.len),
     .objectStartType = @intCast(Object.staticData.items.len),
     .levelStartID = @intCast(Level.levels.items.len),
   });
@@ -398,6 +403,7 @@ fn loadTiles(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
 {
   // At this point, the mod's table is at the top of the stack
   std.debug.assert(luaEnv.?.getSubtable(-1, "tiles"));
+  const tileTableIdx = luaEnv.?.absIndex(-1);
   defer luaEnv.?.pop(1);
   if (modDir.openDir(io, "tiles", .{.iterate = true})) |tileDir|
   {
@@ -412,7 +418,7 @@ fn loadTiles(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
         continue;
       }
 
-      if (!std.mem.eql(u8, path.extension(entry.basename), ".json"))
+      if (!std.mem.eql(u8, path.extension(entry.basename), ".lua"))
       {
         continue;
       }
@@ -420,47 +426,82 @@ fn loadTiles(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
       const tileFile = tileDir.openFile(io, entry.path, .{}) catch continue;
       defer tileFile.close(io);
 
-      const tileInfo =
-        try jsonFromFile(tile.StaticData, io, allocator, tileFile);
-      defer tileInfo.deinit();
+      try luaUtil.runFile(luaEnv.?, io, tileFile, entry.basename);
 
-      log.info("Loading tile {s}\n", .{tileInfo.value.name});
+      if (luaEnv.?.getGlobal("init")) |init|
+      {
+        defer luaEnv.?.pop(1);
+        defer {
+          luaEnv.?.pushNil();
+          luaEnv.?.setGlobal("init");
+        }
 
-      try tile.staticData.append(allocator, .{
-        .name = try allocator.dupe(u8, tileInfo.value.name),
-        .walkable = tileInfo.value.walkable,
-        .color = tileInfo.value.color,
-        .wallConnect = tileInfo.value.wallConnect,
-        .ch = tileInfo.value.ch,
-      });
-      try tile.nameTypes.putNoClobber(
-        allocator,
-        .{.mod = mods.getLast().name, .name = tile.staticData.getLast().name},
-        @intCast(tile.staticData.items.len-1)
-      );
-
-      const data = tile.staticData.getLast();
-      _ = luaEnv.?.pushString(data.name);
-      try luaEnv.?.pushAny(
-        struct
+        if (init == .function)
         {
+          try luaUtil.runFunction(luaEnv.?, .{.results = 1});
+        }
+
+        const Data = struct
+        {
+          name: [:0]const u8,
           walkable: bool,
           color: struct {r: f32, g: f32, b: f32},
           wallConnect: bool,
-          ch: []const u8
-        }{
-          .walkable = data.walkable,
-          .color = .{
-            .r = data.color[0],
-            .g = data.color[1],
-            .b = data.color[2]
-          },
-          .wallConnect = tile.staticData.getLast().wallConnect,
-          .ch = (&tile.staticData.getLast().ch)[0..1],
-        }
-      );
-      luaEnv.?.setTable(-3);
+          ch: []const u8,
+        };
+        const tileInfo = luaEnv.?.toAny(Data, -1) catch unreachable;
+  
+        log.info("Loading tile {s}\n", .{tileInfo.name});
 
+        try Tile.staticData.append(allocator, .{
+          .name = try allocator.dupeSentinel(u8, tileInfo.name, 0),
+          .walkable = tileInfo.walkable,
+          .color = .{tileInfo.color.r, tileInfo.color.g, tileInfo.color.b},
+          .wallConnect = tileInfo.wallConnect,
+          .ch = tileInfo.ch[0],
+        });
+        try Tile.nameTypes.putNoClobber(
+          allocator,
+          .{.mod = mods.getLast().name, .name = Tile.staticData.getLast().name},
+          @intCast(Tile.staticData.items.len-1)
+        );
+  
+        // Not using this because we can just copy and modify the input much easier
+        //try luaEnv.?.pushAny(
+        //  struct
+        //  {
+        //    walkable: bool,
+        //    color: struct {r: f32, g: f32, b: f32},
+        //    wallConnect: bool,
+        //    ch: []const u8
+        //  }{
+        //    .walkable = data.walkable,
+        //    .color = .{
+        //      .r = data.color[0],
+        //      .g = data.color[1],
+        //      .b = data.color[2]
+        //    },
+        //    .wallConnect = tile.staticData.getLast().wallConnect,
+        //    .ch = (&tile.staticData.getLast().ch.?)[0..1],
+        //  }
+        //);
+        luaEnv.?.newUserdata(Tile.Type, 4).* =
+          @intCast(Tile.staticData.items.len-1);
+        luaEnv.?.createTable(0, 2);
+        luaEnv.?.pushFunction(luaUtil.luaTiles.staticDataIndexMetamethod);
+        luaEnv.?.setField(-2, "__index");
+        luaEnv.?.pushFunction(luaUtil.luaTiles.staticDataNewindexMetamethod);
+        luaEnv.?.setField(-2, "__newindex");
+        luaEnv.?.setMetatable(-2);
+
+        luaEnv.?.setField(tileTableIdx, Tile.staticData.getLast().name);
+      } else |e|
+      {
+        log.warn(
+          "No init member found for tile {s}: {}, skipping\n",
+          .{entry.basename, e}
+        );
+      }
     }
   } else |e|
   {
@@ -495,26 +536,28 @@ fn loadInputs(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
     try input.bindings.ensureUnusedCapacity(allocator, 20);
     for (inputs.value) |in|
     {
-      const startIndex: input.IndexBinding = @intCast(input.bindings.items.len);
-
       for (in.defaultBinds) |binding|
       {
+        const startIndex: input.IndexBinding =
+          @intCast(input.bindings.items.len);
+
         const keyCode = input.keyFromString(binding.key) catch |e|
         {
           log.err("Failed to get key \'{s}\': {}\n", .{binding.key, e});
           continue;
         };
+        log.err("Loading binding \"{s}\" ({})\n", .{binding.key, keyCode});
 
         try input.bindings.append(allocator, keyCode);
-
         try input.bindings.append(allocator, 0);
+
+        try input.inputs.put(
+          allocator,
+          startIndex,
+          try allocator.dupe(u8, in.name),
+        );
       }
 
-      try input.inputs.put(
-        allocator,
-        startIndex,
-        try allocator.dupe(u8, in.name),
-      );
       //try Object.nameTypes.putNoClobber(
       //  allocator,
       //  .{.mod = mods.getLast().name, .name = tile.staticData.getLast().name},
@@ -841,11 +884,10 @@ fn loadLevels(io: Io, allocator: Allocator, modDir: Dir) LoadError!void
         pushLevelSubNamespace(
           "tiles",
           .{
-            .get = luaUtil.luaTile.get,
-            .getInfo = luaUtil.luaTile.getInfo,
-            .count = luaUtil.luaTile.count,
-            .iterate = luaUtil.luaTile.iterate,
-            .remove = luaUtil.luaTile.remove,
+            .get = luaUtil.luaTiles.get,
+            .count = luaUtil.luaTiles.count,
+            .iterate = luaUtil.luaTiles.iterate,
+            .remove = luaUtil.luaTiles.remove,
           }
         ) catch unreachable;
 

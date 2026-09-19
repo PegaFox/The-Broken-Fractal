@@ -10,7 +10,7 @@ const mainspace = @import("main.zig");
 const nc = @import("ncurses");
 const sdl = @import("sdl");
 
-const Key = sdl.SDL_Keycode;
+pub const Key = sdl.SDL_Keycode;
 /// An array of null-seperated Key arrays
 pub var bindings = std.ArrayList(Key).empty;
 
@@ -47,7 +47,7 @@ pub var inputs = std.HashMapUnmanaged(
         const keyHash = keyHashFn({}, bindings.items[value+i]);
     
         currentHash = hashHashFn({}, .{currentHash, keyHash});
-        log.debug("Hash key \'{s}\'({}): {}\n", .{@as(*const [1]u8, @ptrCast(&bindings.items[value+i])), bindings.items[value+i], currentHash});
+        log.debug("Hash key \'{s}\'({}): {}\n", .{@as(*const [4]u8, @ptrCast(&bindings.items[value+i])), bindings.items[value+i], currentHash});
       }
 
       return currentHash;
@@ -94,7 +94,7 @@ pub const InputPointerCtx = struct
       const keyHash = keyHashFn({}, value[i]);
   
       currentHash = hashHashFn({}, .{currentHash, keyHash});
-      //log.debug("Pointer hash key \'{s}\'({}): {}\n", .{@as(*const [1]u8, @ptrCast(&value[i])), value[i], currentHash});
+      log.debug("Pointer hash key \'{s}\'({}): {}\n", .{@as(*const [4]u8, @ptrCast(&value[i])), value[i], currentHash});
     }
 
     return currentHash;
@@ -105,13 +105,13 @@ pub const InputPointerCtx = struct
     // Infinite loop protection
     for (0..3) |i|
     {
-      //log.debug(
-      //  "Testing \'{s}\'({}) vs \'{s}\'({})\n",
-      //  .{
-      //    @as(*const [1]u8, @ptrCast(&a[i])), a[i],
-      //    @as(*const [1]u8, @ptrCast(&bindings.items[b+i])), bindings.items[b+i]
-      //  }
-      //);
+      log.debug(
+        "Testing \'{s}\'({}) vs \'{s}\'({})\n",
+        .{
+          @as(*const [4]u8, @ptrCast(&a[i])), a[i],
+          @as(*const [4]u8, @ptrCast(&bindings.items[b+i])), bindings.items[b+i]
+        }
+      );
 
       if (a[i] != bindings.items[b+i])
       {
@@ -130,17 +130,43 @@ pub const InputPointerCtx = struct
 
 const quitEvent = "Quit";
 
-// Currently held keys
-var currentSequence: [3]Key = undefined;
-var currentSequenceLen: u2 = 0;
+/// Currently is not used in this file. It is only for allowing other files to coordinate with a cached input
+pub var currentInput: ?[]const u8 = null;
 
 /// Polls for an input, returning null if nothing new
-/// Io is used to get a timestamp for events
-pub fn getInput() !?[]const u8
+pub fn getInput() ?[]const u8
 {
-  const input = pollEvent() orelse return null;
+  return if (getEventRaw()) |raw| raw.event else null;
+}
 
-  switch (std.hash_map.hashString(input))
+pub const RawEvent = struct {
+  key: Key,
+  event: []const u8,
+};
+/// Only returns if input is a valid predefined input
+pub fn getEventRaw() ?RawEvent
+{
+  const input = getInputRaw() orelse return null;
+
+  return .{.key = input.key, .event = input.event orelse return null};
+}
+
+pub const RawInput = struct {
+  key: Key,
+  event: ?[]const u8,
+};
+
+/// Returns null in the event field if the key is not a valid input event
+pub fn getInputRaw() ?RawInput
+{
+  const input = pollInput() orelse return null;
+
+  if (input.event == null)
+  {
+    return input;
+  }
+
+  switch (std.hash_map.hashString(input.event.?))
   {
     std.hash_map.hashString(quitEvent) => mainspace.running = false,
     else => {
@@ -151,7 +177,7 @@ pub fn getInput() !?[]const u8
   return input;
 }
 
-fn pollEvent() ?[]const u8
+fn pollInput() ?RawInput
 {
   if (graphics.sdlData != null)
   {
@@ -163,22 +189,23 @@ fn pollEvent() ?[]const u8
       switch (event.type)
       {
         sdl.SDL_EVENT_QUIT => {
-          return quitEvent;
+          return .{.key = 0, .event = quitEvent};
         },
         sdl.SDL_EVENT_KEY_DOWN => {
           if (
             event.key.mod & sdl.SDL_KMOD_CTRL > 0 and
             event.key.key == sdl.SDLK_C)
           {
-            return quitEvent;
+            return .{.key = event.key.key, .event = quitEvent};
           }
 
+          log.debug("Input key code: {}\n", .{event.key.key});
           // TODO: Add modifier key support
-          if (inputs.getAdapted(
-            &[_:0]Key{event.key.key}, InputPointerCtx)) |eventName|
-          {
-            return eventName;
-          }
+          return .{
+            .key = event.key.key,
+            .event =
+              inputs.getAdapted(&[_:0]Key{event.key.key}, InputPointerCtx)
+          };
         },
         else => {}
       }
@@ -195,7 +222,7 @@ fn pollEvent() ?[]const u8
       return null;
     }
 
-    if (key == 3) return quitEvent;
+    if (key == 3) return .{.key = 3, .event = quitEvent};
 
     //const name = nc.keyname(key);
     //log.debug("Key {s} ({}) press\n", .{name, key});
@@ -205,11 +232,10 @@ fn pollEvent() ?[]const u8
     //  .{@as(*const [1]u8, @ptrCast(&key)), key}
     //);
     // TODO: Add modifier key support
-    if (inputs.getAdapted(
-      &[_:0]Key{@intCast(key)}, InputPointerCtx)) |eventName|
-    {
-      return eventName;
-    }
+    return .{
+      .key = @intCast(key),
+      .event = inputs.getAdapted(&[_:0]Key{@intCast(key)}, InputPointerCtx)
+    };
 
     //switch (key)
     //{

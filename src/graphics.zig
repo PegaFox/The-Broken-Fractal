@@ -93,13 +93,10 @@ pub const Char = u21;
 
 pub const Color = @Vector(3, f32);
 
-/// Workaround for c-translate issue with ncurses
-/// TODO: Try building ncurses with zig to see if that fixes this
-const acsBit: Char = 0x80;
-pub fn acs(ch: Char) Char
-{
-  return acsBit | ch;
-}
+/// A char coordinate in the viewport
+/// The child type is u15 so that it can be a true subset of Level.Coord
+pub const Coord = @Vector(2, u15);
+pub const Offset = @Vector(2, i16);
 
 /// Leaving arguments as null will use the highest quality renderer available
 pub fn init(
@@ -397,12 +394,6 @@ pub fn drawCh(pos: Level.Coord, ch: Char) Error!void
 
   if (ncData != null)
   {
-    var chSpr: nc.chtype = ch;
-    if (chSpr & acsBit > 0)
-    {
-      chSpr = chSpr & ~acsBit | 0x400000;
-    }
-
     var chColor: c_short = undefined;
     if (nc.attr_get(null, &chColor, null) == nc.ERR)
     {

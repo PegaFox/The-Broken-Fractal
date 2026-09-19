@@ -47,67 +47,73 @@ pub var queue: std.PriorityQueue(
 /// Pushes the object's action to the action queue
 /// If the action cannot be pushed (eg. user input is required for the action), then a temporary junk action is pushed until something else can be used
 pub fn push(allocator: Allocator, ecs: *ECS, object: Object) !void
-{
+{_ = ecs;
   try queue.push(
     allocator,
-    object.getAction(ecs) catch
+    //object.getAction(ecs) catch
       .{.object = object, .startTime = present, .cost = 0}
   );
 }
 
-/// This should only be null at game start (probably)
-var stepTimePendingTurn: ?Self = null;
+/// This is used to keep track of partially completed object turns waiting for input
+var stepTimePendingAction: ?luaUtil.PausedThread = null;
 /// Steps time forward until the next event
 /// Returns how much time passed
 pub fn stepTime(ecs: *ECS) Duration
-{// First get input, then get output, storing the retrieved turn for the next input
-  //const luaState = Mod.luaEnv.?;
-  //const hasAction = turn.getLuaAction(luaState);
-
-  //// TODO: Add error handling here
-  //if (hasAction)
-  //{
-  //  luaUtil.runFunction(luaState) catch unreachable;
-  //}
-
-  if (stepTimePendingTurn == null)
+{
+  if (queue.items.len == 0)
   {
-    stepTimePendingTurn = queue.peek();
-
     return 0;
   }
 
-  const pending = &stepTimePendingTurn.?;
-
-  const turn = pending.object.getAction(ecs) catch |e|
-    switch (e)
-    {
-      // Returning here keeps the turn pending and allows us to wait for input for another game loop
-      error.NoInput => return 0,
-      error.LuaFail => Self{
-        .object = pending.object,
-        .startTime = present,
-        .cost = 1,
-      },
-      else => unreachable
-    };
-  queue.update(pending.*, turn) catch {};
-
-  stepTimePendingTurn = queue.peek() orelse return 0;
-
-  const luaState = Mod.luaEnv.?;
-  const hasAction = pending.getLuaAction(luaState);
+  const currentTurn = queue.peek().?;
 
   // This needs to be calculated because we don't know how long the action has been in progress
-  const duration = pending.endTime() - present;
+  const duration = currentTurn.endTime() - present;
+  present += duration;
+
+  const luaState = Mod.luaEnv.?;
+  const hasAction = currentTurn.getLuaAction(luaState);
 
   // TODO: Add error handling here
   if (hasAction)
   {
+    //log.debug("imafinnagonna\n", .{});
+    //luaUtil.dumpStack(luaState);
     luaUtil.runFunction(luaState, .{}) catch unreachable;
   }
 
-  present += duration;
+  var newTurn: Self = undefined;
+  switch (
+    currentTurn.object.getAction(ecs, stepTimePendingAction) catch |e|
+      switch (e)
+    {
+      error.LuaFail =>
+      {
+        stepTimePendingAction = null;
+        //if (@errorReturnTrace()) |trace| {std.debug.dumpErrorReturnTrace(trace);}
+        return 0;
+      },
+      error.NoTurnFunction =>
+      {
+        _ = queue.pop();
+        return 0;
+      }
+    })
+  {
+    .Done => |turn|
+    {
+      stepTimePendingAction = null;
+      newTurn = turn;
+    },
+    .Yield => |thread|
+    {
+      stepTimePendingAction = thread;
+      return 0;
+    },
+  }
+  queue.update(currentTurn, newTurn) catch {};
+
   return duration;
 }
 

@@ -13,6 +13,7 @@ const Mod = @import("mod.zig");
 const logger = @import("debug_log_fn.zig");
 const input = @import("input.zig");
 const graphics = @import("graphics.zig");
+const ui = @import("ui.zig");
 
 const ECS = @import("ecs");
 
@@ -115,6 +116,8 @@ pub fn main(init: std.process.Init) !void
     scene.deinit() catch unreachable;
   };
 
+  defer ui.currentWindow.deinit(Mod.luaEnv.?.allocator());
+
   //for (Level.levels.items) |level|
   //{
   //  _ = try level.scene.init(init.gpa);
@@ -181,6 +184,12 @@ pub fn main(init: std.process.Init) !void
       }
     }
 
+    // Here we can get input regardless of if actions are requesting it
+    //if (input.currentInput == null)
+    //{
+    //  input.currentInput = input.getInput();
+    //}
+
     try Scene.currentScene.update();
 
     if (Mod.luaEnv) |luaState|
@@ -211,11 +220,21 @@ pub fn main(init: std.process.Init) !void
       else => return e,
     };
 
-    for (ecs.getArr("inventory", Inventory).?) |inventory|
+    if (ui.currentWindow.isOpen())
     {
-      inventory.draw() catch log.warn("Failed to render inventory list\n", .{});
+      ui.currentWindow.handleInputs();
+
+      try ui.currentWindow.draw();
     }
     try graphics.endFrame();
+  }
+
+  if (ecs.getArr("inventory", Inventory)) |inventories|
+  {
+    for (inventories) |*inventory|
+    {
+      inventory.items.deinit(init.gpa);
+    }
   }
 
   log.info("Exited main function\n", .{});

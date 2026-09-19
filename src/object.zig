@@ -122,68 +122,56 @@ pub fn getStaticData(object: Self) error{InvalidID}!StaticData
   return staticData.items[object.type];
 }
 
-var currentInput: ?[]const u8 = null;
-/// io parameter is used for getting inputs
-pub fn getAction(object: Self, ecs: *ECS) error{NoInput, LuaFail}!Turn
+/// If thread is not null, resumes from where it left off. Otherwise getAction will create a new thread for this object
+/// If this returns yielded, the lua function was suspended to wait for engine resources. In this case, the yielded function is contained in thread
+pub fn getAction(object: Self, ecs: *ECS, thread: ?luaUtil.PausedThread)
+  error{LuaFail, NoTurnFunction}!
+  union(enum) {Done: Turn, Yield: luaUtil.PausedThread}
 {
   const state = Mod.luaEnv orelse return error.LuaFail;
+  //errdefer if (thread == null) state.pop(1);
 
-  const top = state.getTop();
-  defer state.setTop(top);
-
-  if ((state.getGlobal("fractal") catch return error.LuaFail) != .table)
-    return error.LuaFail;
-  if (!state.getSubtable(-1, "mods")) return error.LuaFail;
-  _ = state.pushString(Mod.findObjectMod(object.type).name);
-  if (state.getTable(-2) != .table) return error.LuaFail;
-  if (!state.getSubtable(-1, "objects")) return error.LuaFail;
-  _ = state.pushString(staticData.items[object.type].name);
-  if (state.getTable(-2) != .table) return error.LuaFail;
-  if (state.getField(-1, "takeTurn") != .function) return error.LuaFail;
-
-  // Checks if the function has a parameter for input
-  const needsInput =
-  blk:{
-    state.pushValue(-1);
-    var functionInfo: lua.DebugInfo = undefined;
-    state.getInfo(.{.@">" = true, .u = true}, &functionInfo);
-
-    break:blk functionInfo.num_params == 2;
-  };
-  
-  // Push 'this' argument
-  luaUtil.luaObject.generateLua(state, ecs, object);
-  if (needsInput)
+  if (input.currentInput == null)
   {
-    if (currentInput == null)
-    {
-      currentInput = (input.getInput() catch unreachable) orelse
-        return error.NoInput;
-    }
-
-    state.createTable(0, 1);
-    state.pushFunction(luaUtil.toApiFunction("inputIs", struct {
-      fn inputIs(@"test": []const u8) bool
-      {
-        if (currentInput != null and std.mem.eql(u8, @"test", currentInput.?))
-        {
-          currentInput = null;
-
-          return true;
-        } else
-        {
-          return false;
-        }
-      }
-    }.inputIs, .{}));
-    state.setField(-2, "is");
+    input.currentInput = input.getInput();
   }
 
-  luaUtil.runFunction(state, .{
-    .args = if (needsInput) 2 else 1,
-    .results = 1
-  }) catch
-    return error.LuaFail;
+  const endTop = state.getTop();
+  defer state.setTop(endTop);
+
+  if (thread == null)
+  {
+    const top = state.getTop();
+    errdefer state.setTop(top);
+
+    if ((state.getGlobal("fractal") catch return error.LuaFail) != .table)
+      return error.LuaFail;
+    if (!state.getSubtable(-1, "mods")) return error.LuaFail;
+    _ = state.pushString(Mod.findObjectMod(object.type).name);
+    if (state.getTable(-2) != .table) return error.LuaFail;
+    if (!state.getSubtable(-1, "objects")) return error.LuaFail;
+    if (state.getField(-1, staticData.items[object.type].name) != .table)
+    {
+      return error.NoTurnFunction;
+    }
+    if (state.getField(-1, "takeTurn") != .function)
+    {
+      return error.NoTurnFunction;
+    }
+    state.rotate(top+1, 1);
+    state.setTop(top+1);
+  
+    // Push 'this' argument
+    luaUtil.luaObject.generateLua(state, ecs, object);
+  }
+
+  if (
+    luaUtil.runCoroutine(state, thread, if (thread == null) 1 else 0) catch
+      return error.LuaFail) |outThread|
+  {
+    return .{.Yield = outThread};
+  }
+
   if (state.typeOf(-1) != .table) return error.LuaFail;
 
   std.debug.assert(state.getField(lua.registry_index, "fractal") == .table);
@@ -193,9 +181,9 @@ pub fn getAction(object: Self, ecs: *ECS) error{NoInput, LuaFail}!Turn
 
   if (state.getField(-3, "cost") != .number) return error.LuaFail;
 
-  return .{
+  return .{.Done = .{
     .object = object,
     .startTime = Turn.present,
     .cost = @intCast(state.toInteger(-1) catch unreachable),
-  };
+  }};
 }

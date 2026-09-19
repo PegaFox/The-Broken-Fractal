@@ -1,0 +1,8 @@
+-- Using a lua table allows using functions for these fields
+init = {
+  name = "concreteFloor",
+  walkable = true,
+  color = {r = 1.0, g = 1.0, b = 1.0},
+  wallConnect = false,
+  ch = "."
+}

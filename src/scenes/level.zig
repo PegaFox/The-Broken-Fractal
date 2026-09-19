@@ -259,6 +259,9 @@ pub const interface = Scene{
     {
       _ = self;
 
+      memoryToDraw.deinit(gpa);
+      sightToDraw.deinit(gpa);
+
       objects.deinit(gpa);
     }}.deinit,
   }

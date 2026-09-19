@@ -43,13 +43,16 @@ local function removeExtraTiles(self)
   self.tiles.max = 400
 
   local player = fractal.mods.base.player
+  local playerPos = player.pos:get()
 
   for k, _ in self.tiles:iterate() do
     if self.tiles:count() <= self.tiles.max then
       break
     end
 
-    if not player.sight:inView(k) then
+    -- Use approximation for distance since this could be done several times per turn
+    local dis = math.abs(k[1]-playerPos[1]) + math.abs(k[2]-playerPos[2])
+    if dis > 10 and not player.sight:inView(k) then
       print("Remove tile { ", k[1], ", ", k[2], " }")
       self.tiles:remove(k)
       -- May need to resync iterator at this point
@@ -83,7 +86,7 @@ end
 
 function generateTile(self, pos)
   --return fractal.mods.base.levels.level1:generateTile(pos)
-  local originDis = math.sqrt(pos[1]*pos[1] + pos[2]*pos[2])
+  local originDis = math.abs(pos[1]) + math.abs(pos[2])
 
   local result = nil
   if pos[1]%2 == 1 and pos[2]%2 == 1 then
@@ -91,9 +94,9 @@ function generateTile(self, pos)
   elseif pos[1]%2 == 0 and pos[2]%2 == 0 then
     result = {"base", "yellowWallpaper"}
   else
-    if originDis > 4 and math.random(0, 3) == 0 then
+    --if originDis > 4 and math.random(0, 3) == 0 then
     --if math.random(0, math.max(3, 32-math.floor(originDis))) == 0 then
-    --if math.random(0, 3)) == 0 then
+    if math.random(0, 3) == 0 then
       result = {"base", "yellowWallpaper"}
     else
       result = {"base", "cyanideCarpet"}
@@ -101,10 +104,10 @@ function generateTile(self, pos)
   end
 
   if pos[1]%2 == 0 and pos[2]%2 == 0 and
-    self.tiles:getInfo({pos[1]-1, pos[2]}).walkable and
-    self.tiles:getInfo({pos[1]+1, pos[2]}).walkable and
-    self.tiles:getInfo({pos[1], pos[2]-1}).walkable and
-    self.tiles:getInfo({pos[1], pos[2]+1}).walkable
+    self.tiles:get({pos[1]-1, pos[2]}):typeData().walkable and
+    self.tiles:get({pos[1]+1, pos[2]}):typeData().walkable and
+    self.tiles:get({pos[1], pos[2]-1}):typeData().walkable and
+    self.tiles:get({pos[1], pos[2]+1}):typeData().walkable
   then
     result = {"base", "cyanideCarpet"}
   end

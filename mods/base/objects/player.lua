@@ -13,9 +13,7 @@ function init()
   return result
 end
 
--- The input parameter is optional. If it is included, the program will wait until user input is given before running the function
--- object.takeTurn is currently the only function that can take an input parameter
-function takeTurn(self, input)
+function takeTurn(self)
   print("player turn")
   --print("fractal.input = ", fractal.input())
   local inputs = self.mod.inputs
@@ -27,38 +25,66 @@ function takeTurn(self, input)
 
   print("pos = {", self.pos:get()[1], ", ", self.pos:get()[2], "}")
 
-  if input.is(inputs.Wait) then
+  if fractal.input(inputs.Wait) then
     return modActions.wait.queue(self, 1)
   end
-  if input.is(inputs.Up) then
+  if fractal.input(inputs.Up) then
     return modActions.move.queue(self, { 0, -1})
   end
-  if input.is(inputs.UpRight) then
+  if fractal.input(inputs.UpRight) then
     return modActions.move.queue(self, { 1, -1})
   end
-  if input.is(inputs.Right) then
+  if fractal.input(inputs.Right) then
     return modActions.move.queue(self, { 1,  0})
   end
-  if input.is(inputs.DownRight) then
+  if fractal.input(inputs.DownRight) then
     return modActions.move.queue(self, { 1,  1})
   end
-  if input.is(inputs.Down) then
+  if fractal.input(inputs.Down) then
     return modActions.move.queue(self, { 0,  1})
   end
-  if input.is(inputs.DownLeft) then
+  if fractal.input(inputs.DownLeft) then
     return modActions.move.queue(self, {-1,  1})
   end
-  if input.is(inputs.Left) then
+  if fractal.input(inputs.Left) then
     return modActions.move.queue(self, {-1,  0})
   end
-  if input.is(inputs.UpLeft) then
+  if fractal.input(inputs.UpLeft) then
     return modActions.move.queue(self, {-1, -1})
   end
-  --if fractal.input == 'w' then
-  --  local dir = fractal.prompt("Direction?")
-  --  if dir == 'h' then return self:write({-1, 0}) end
-  --  if dir == 'j' then return self:write({0, 1}) end
-  --  if dir == 'k' then return self:write({0, -1}) end
-  --  if dir == 'l' then return self:write({1, 0}) end
-  --end
+  if fractal.input(inputs.Write) then
+    local dirInput = fractal.prompt("Direction?")
+
+    local dir = {0, 0}
+
+    if dirInput == inputs.Left  then dir = {-1,  0} end
+    if dirInput == inputs.Down  then dir = { 0,  1} end
+    if dirInput == inputs.Up    then dir = { 0, -1} end
+    if dirInput == inputs.Right then dir = { 1,  0} end
+
+    local pos = self.pos:get()
+    local tile =
+      self.mod.levels.level0.tiles:get({pos[1]+dir[1], pos[2]+dir[2]})
+
+    local startText = ""
+    if tile:lua().writing then
+      startText = tile:lua().writing
+    end
+
+    local window = fractal.openWindow({10, 10}, {
+      {
+        "navigation",
+        up = inputs.Up,
+        down = inputs.Down,
+        left = inputs.Left,
+        right = inputs.Right,
+        select = inputs.Wait,
+        back = inputs.Cancel,
+      },
+      {"border"},
+      {"text area", size = {10, 10}, text = startText}
+    })
+
+    return modActions.write.queue(self, window[3].text, tile)
+  end
 end
